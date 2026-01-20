@@ -1,3 +1,5 @@
 Crawl4AI
 python-dotenv
 pydantic
+pyyaml
+rich

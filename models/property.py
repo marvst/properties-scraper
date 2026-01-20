@@ -1,3 +1,5 @@
+from typing import Optional
+
 from pydantic import BaseModel
 
 
@@ -18,5 +20,5 @@ class Property(BaseModel):
     full_address: str
     property_url: str
     image_urls: list[str]
-    description: str
+    description: Optional[str] = None
 

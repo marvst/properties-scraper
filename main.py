@@ -1,70 +1,175 @@
+import argparse
 import asyncio
+import sys
+from datetime import datetime
+from pathlib import Path
 
 from crawl4ai import AsyncWebCrawler
-from dotenv import load_dotenv
+from rich.console import Console
 
-from config import BASE_URL, CSS_SELECTOR, REQUIRED_KEYS
-from utils.data_utils import (
-    save_results_to_csv,
-)
-from utils.scraper_utils import (
-    fetch_and_process_page,
-    get_browser_config,
-    get_llm_strategy,
-)
+EXTRACTIONS_DIR = Path("extractions")
 
-load_dotenv()
+from config import get_site_config, list_sites
+from utils.data_utils import save_results_to_csv
+from utils.extraction_factory import create_extraction_strategy
+from utils.scraper_utils import fetch_and_process_page, get_browser_config
+
+console = Console()
 
 
-async def crawl():
+def parse_args():
+    """Parse command line arguments."""
+    parser = argparse.ArgumentParser(
+        description="Procrawl - YAML-configured web scraper",
+        formatter_class=argparse.RawDescriptionHelpFormatter,
+        epilog="""
+Examples:
+  python main.py --list                    List available sites
+  python main.py apolar_apartments         Crawl a specific site
+  python main.py my_site --config custom.yaml  Use custom config file
+        """,
+    )
+
+    parser.add_argument(
+        "site",
+        nargs="?",
+        help="Name of the site to crawl (from sites.yaml)",
+    )
+    parser.add_argument(
+        "--config",
+        "-c",
+        default="sites.yaml",
+        help="Path to YAML config file (default: sites.yaml)",
+    )
+    parser.add_argument(
+        "--list",
+        "-l",
+        action="store_true",
+        help="List available sites and exit",
+    )
+
+    return parser.parse_args()
+
+
+def print_sites_list(config_path: str):
+    """Print a formatted list of available sites."""
+    try:
+        sites = list_sites(config_path)
+    except FileNotFoundError:
+        print(f"Error: Config file not found: {config_path}")
+        print("Create a sites.yaml file or specify a different config with --config")
+        sys.exit(1)
+
+    if not sites:
+        print("No sites configured.")
+        return
+
+    print("\nAvailable sites:")
+    print("-" * 70)
+    for site in sites:
+        status = "enabled" if site["enabled"] else "disabled"
+        print(f"  {site['name']:<20} [{status}]")
+        print(f"    URL: {site['url']}")
+    print("-" * 70)
+
+
+async def crawl(site_name: str, config_path: str):
     """
-    Main function to crawl venue data from the website.
+    Main function to crawl data from a configured site.
+
+    Args:
+        site_name: The name of the site to crawl.
+        config_path: Path to the YAML config file.
     """
-    # Initialize configurations
-    browser_config = get_browser_config()
-    llm_strategy = get_llm_strategy()
-    session_id = "crawl_session"
+    with console.status("[bold blue]Loading configuration...") as status:
+        # Load site configuration
+        try:
+            site_config = get_site_config(site_name, config_path)
+        except FileNotFoundError:
+            console.print(f"[red]Error: Config file not found: {config_path}[/red]")
+            sys.exit(1)
+        except ValueError as e:
+            console.print(f"[red]Error: {e}[/red]")
+            sys.exit(1)
 
-    # Initialize state variables
-    all_results = []
-    seen_names = set()
+        console.print(f"\n[bold]Crawling site:[/bold] {site_config.name}")
+        console.print(f"[bold]URL:[/bold] {site_config.url}")
 
-    # Start the web crawler context
-    # https://docs.crawl4ai.com/api/async-webcrawler/#asyncwebcrawler
+        # Initialize configurations
+        status.update("[bold blue]Initializing browser configuration...")
+        browser_config = get_browser_config(site_config)
+        extraction_strategy = create_extraction_strategy(site_config.extraction)
+        session_id = f"crawl_{site_config.name}"
+
+        # Get CSS selector and required keys from config
+        css_selector = None
+        if site_config.interaction and site_config.interaction.css_selector:
+            css_selector = site_config.interaction.css_selector
+        elif site_config.extraction.css:
+            css_selector = site_config.extraction.css.base_selector
+
+        required_keys = []
+        if site_config.data:
+            required_keys = site_config.data.required_keys
+
+        # Initialize state variables
+        all_results = []
+        seen_names = set()
+
+    # Start the web crawler context - stop spinner during crawl to avoid event loop interference
+    console.print("[bold blue]Starting browser...")
     async with AsyncWebCrawler(config=browser_config) as crawler:
-        # Fetch and process data from the initial page
+        # Fetch and process data from the page
+        console.print("[bold blue]Fetching page and extracting data...")
         results = await fetch_and_process_page(
             crawler,
-            BASE_URL,
-            CSS_SELECTOR,
-            llm_strategy,
+            site_config.url,
+            css_selector,
+            extraction_strategy,
             session_id,
-            REQUIRED_KEYS,
+            required_keys,
             seen_names,
+            site_config,
         )
 
         if not results:
-            print("No results extracted from the page.")
+            console.print("[yellow]No results extracted from the page.[/yellow]")
 
         # Add the results to the total list
         all_results.extend(results)
 
-    # Save the collected results to a CSV file
-    if all_results:
-        save_results_to_csv(all_results, "complete_results.csv")
-        print(f"Saved {len(all_results)} results to 'complete_results.csv'.")
-    else:
-        print("No results were found during the crawl.")
+    with console.status("[bold green]Saving results...") as status:
 
-    # Display usage statistics for the LLM strategy
-    llm_strategy.show_usage()
+        # Save the collected results to a CSV file
+        if all_results:
+            status.update("[bold green]Saving results...")
+            # Ensure extractions directory exists
+            EXTRACTIONS_DIR.mkdir(exist_ok=True)
+
+            # Generate timestamped filename
+            timestamp = datetime.now().strftime("%Y%m%d_%H%M%S")
+            output_file = EXTRACTIONS_DIR / f"{site_config.name}_{timestamp}.csv"
+
+            save_results_to_csv(all_results, str(output_file))
+            console.print(f"[green]Saved {len(all_results)} results to '{output_file}'.[/green]")
+        else:
+            console.print("[yellow]No results were found during the crawl.[/yellow]")
 
 
 async def main():
-    """
-    Entry point of the script.
-    """
-    await crawl()
+    """Entry point of the script."""
+    args = parse_args()
+
+    if args.list:
+        print_sites_list(args.config)
+        return
+
+    if not args.site:
+        print("Error: Please specify a site name or use --list to see available sites.")
+        print("Usage: python main.py <site_name> [--config <config_file>]")
+        sys.exit(1)
+
+    await crawl(args.site, args.config)
 
 
 if __name__ == "__main__":

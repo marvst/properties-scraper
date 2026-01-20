@@ -1,0 +1,287 @@
+# Procrawl Sites Configuration
+# Copy this file to sites.yaml and customize for your needs.
+#
+# Usage:
+#   python main.py --list                    # List available sites
+#   python main.py <site_name>               # Crawl a specific site
+#   python main.py <site_name> --config custom.yaml  # Use custom config
+
+# =============================================================================
+# DEFAULTS (optional)
+# Values here are applied to all sites unless overridden
+# =============================================================================
+defaults:
+  browser:
+    browser_type: chromium    # chromium | firefox | webkit
+    headless: true            # Run browser in headless mode
+    verbose: false            # Enable verbose logging
+
+  timing:
+    page_timeout: 60000            # Max time to wait for page load (ms)
+    delay_before_return_html: 0    # Wait after page load before extraction (ms)
+
+# =============================================================================
+# SITES
+# Define your scraping targets here
+# =============================================================================
+sites:
+  # ---------------------------------------------------------------------------
+  # Example 1: CSS-based extraction with custom JavaScript interaction
+  # ---------------------------------------------------------------------------
+  - name: "apolar_apartments"
+    enabled: true
+    url: "https://www.apolar.com.br/alugar/apartamento/2-quartos?mensal&country=Brasil&garage=1&price_max=R%24%203.100,00&area_min=50,00%20m%C2%B2&include_condominium_price=true"
+
+    browser:
+      browser_type: "chromium"
+      headless: false           # Set to true for production
+      verbose: true
+
+    extraction:
+      type: "css"
+      css:
+        base_selector: ".property-component"
+        fields:
+          - name: "property_type"
+            selector: ".property-type"
+            type: "text"
+
+          - name: "street"
+            selector: ".property-street"
+            type: "text"
+
+          - name: "address_others"
+            selector: ".property-address-others"
+            type: "text"
+
+          - name: "garages_text"
+            selector: ".feature.car"
+            type: "text"
+
+          - name: "bedrooms_text"
+            selector: ".feature.bed"
+            type: "text"
+
+          - name: "area_text"
+            selector: ".feature.ruler"
+            type: "text"
+
+          - name: "bathrooms_text"
+            selector: ".feature.bw"
+            type: "text"
+
+          - name: "rent_price_text"
+            selector: ".property-current-price"
+            type: "text"
+
+          - name: "condo_fee_text"
+            selector: ".property-codominum-price"
+            type: "text"
+
+          - name: "property_url"
+            selector: "a.info-area-wrapper"
+            type: "attribute"
+            attribute: "href"
+
+          - name: "image_urls"
+            selector: ".slick-slide:not(.slick-cloned) img"
+            type: "attribute"
+            attribute: "src"
+            multiple: true        # Returns an array of values
+
+    interaction:
+      css_selector: "[class^='property-component']"
+
+      # wait_for: JavaScript condition that must return true before extraction
+      wait_for: |
+        js:() => {
+          return window.allButtonsClicked === true;
+        }
+
+      # js_code: JavaScript to execute on page load (e.g., infinite scroll, click buttons)
+      js_code: |
+        (async () => {
+          console.log("Starting sequential load-more button clicking...");
+
+          const waitForPropertyContainer = () => {
+            return new Promise(resolve => {
+              const check = setInterval(() => {
+                if (document.querySelector('.property-component')) {
+                  clearInterval(check);
+                  resolve();
+                }
+              }, 200);
+            });
+          };
+
+          await waitForPropertyContainer();
+          console.log('.property-container found. Starting sequential clicks.');
+
+          let clickCount = 0;
+          while (true) {
+            const btn = document.querySelector('.load-more');
+            if (!btn) {
+              console.log(`No more .load-more buttons found after ${clickCount} clicks.`);
+              break;
+            }
+
+            console.log(`Clicking load-more button #${clickCount + 1}...`);
+            btn.click();
+            clickCount++;
+
+            await new Promise(resolve => setTimeout(resolve, 2000));
+          }
+
+          await new Promise(resolve => setTimeout(resolve, 3000));
+
+          const propertyCount = document.querySelectorAll('[class^="property-component"]').length;
+          console.log(`Total properties found in DOM: ${propertyCount}`);
+
+          window.propertyCount = propertyCount;
+          window.allButtonsClicked = true;
+          console.log('All load-more buttons clicked. Ready for extraction.');
+        })();
+
+    timing:
+      page_timeout: 120000
+      delay_before_return_html: 3000
+      wait_until: "networkidle"   # load | domcontentloaded | networkidle
+
+    cache:
+      mode: "bypass"   # enabled | disabled | bypass | read_only | write_only
+
+    data:
+      required_keys:
+        - "full_address"
+        - "rent_price_brl"
+      unique_key_fields:
+        - "full_address"
+        - "rent_price_brl"
+        - "area_sqft"
+      output_file: "apolar_results.csv"
+      json_output_file: "apolar_extracted.json"
+
+    # Transform is optional - when disabled, default transformation is used
+    transform:
+      enabled: false
+
+  # ---------------------------------------------------------------------------
+  # Example 2: Simple CSS extraction without custom JS
+  # ---------------------------------------------------------------------------
+  - name: "example_simple"
+    enabled: false              # Set to true to enable
+    url: "https://example.com/listings"
+
+    extraction:
+      type: "css"
+      css:
+        base_selector: ".listing-card"
+        fields:
+          - name: "title"
+            selector: "h2.title"
+            type: "text"
+
+          - name: "price"
+            selector: ".price"
+            type: "text"
+
+          - name: "link"
+            selector: "a.detail-link"
+            type: "attribute"
+            attribute: "href"
+
+    data:
+      required_keys:
+        - "title"
+        - "price"
+      output_file: "example_results.csv"
+      json_output_file: "example_extracted.json"
+
+  # ---------------------------------------------------------------------------
+  # Example 3: LLM-based extraction
+  # ---------------------------------------------------------------------------
+  - name: "example_llm"
+    enabled: false              # Set to true to enable
+    url: "https://example.com/products"
+
+    extraction:
+      type: "llm"
+      llm:
+        provider: "openai/gpt-4o-mini"
+        api_token_env: "OPENAI_API_KEY"   # Environment variable name
+        instruction: |
+          Extract all product information from the page. For each product, extract:
+          - name: The product name
+          - price: The price as a number
+          - description: A brief description
+          - in_stock: Whether the item is in stock (true/false)
+        input_format: "markdown"   # markdown | html | fit_markdown
+
+    timing:
+      page_timeout: 30000
+
+    data:
+      required_keys:
+        - "name"
+        - "price"
+      output_file: "llm_results.csv"
+      json_output_file: "llm_extracted.json"
+
+  # ---------------------------------------------------------------------------
+  # Example 4: With custom data transformations
+  # ---------------------------------------------------------------------------
+  - name: "example_transform"
+    enabled: false
+    url: "https://example.com/real-estate"
+
+    extraction:
+      type: "css"
+      css:
+        base_selector: ".property"
+        fields:
+          - name: "street"
+            selector: ".street"
+            type: "text"
+          - name: "city"
+            selector: ".city"
+            type: "text"
+          - name: "price_text"
+            selector: ".price"
+            type: "text"
+          - name: "area_text"
+            selector: ".area"
+            type: "text"
+          - name: "images"
+            selector: "img.gallery"
+            type: "attribute"
+            attribute: "src"
+            multiple: true
+
+    data:
+      required_keys:
+        - "full_address"
+        - "price"
+      output_file: "transform_results.csv"
+      json_output_file: "transform_extracted.json"
+
+    transform:
+      enabled: true
+
+      # Convert text fields to numbers
+      numeric_fields:
+        - name: "price"
+          source: "price_text"
+          format: "brazilian_currency"   # brazilian_currency | integer | float
+
+        - name: "area"
+          source: "area_text"
+          format: "float"
+
+      # Create computed fields from templates
+      computed_fields:
+        - name: "full_address"
+          template: "{street}, {city}"
+
+      # Deduplicate values in array fields
+      deduplicate_fields:
+        - "images"

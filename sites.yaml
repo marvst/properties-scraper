@@ -1,0 +1,134 @@
+# Procrawl Sites Configuration
+# See sites.example.yaml for full documentation and more examples.
+
+defaults:
+  browser:
+    browser_type: chromium
+    headless: true
+    verbose: false
+
+  timing:
+    page_timeout: 60000
+    delay_before_return_html: 0
+
+sites:
+  - name: "apolar_apartments"
+    enabled: true
+    url: "https://www.apolar.com.br/alugar/apartamento/curitiba/2-quartos?mensal&country=Brasil&garage=1&price_max=R%24%203.100,00&area_min=50,00%20m%C2%B2&include_condominium_price=true"
+
+    browser:
+      browser_type: "chromium"
+      headless: true
+      verbose: true
+
+    extraction:
+      type: "css"
+      css:
+        base_selector: ".property-component"
+        fields:
+          - name: "property_type"
+            selector: ".property-type"
+            type: "text"
+          - name: "street"
+            selector: ".property-street"
+            type: "text"
+          - name: "address_others"
+            selector: ".property-address-others"
+            type: "text"
+          - name: "garages_text"
+            selector: ".feature.car"
+            type: "text"
+          - name: "bedrooms_text"
+            selector: ".feature.bed"
+            type: "text"
+          - name: "area_text"
+            selector: ".feature.ruler"
+            type: "text"
+          - name: "bathrooms_text"
+            selector: ".feature.bw"
+            type: "text"
+          - name: "rent_price_text"
+            selector: ".property-current-price"
+            type: "text"
+          - name: "condo_fee_text"
+            selector: ".property-codominum-price"
+            type: "text"
+          - name: "property_url"
+            selector: "a.info-area-wrapper"
+            type: "attribute"
+            attribute: "href"
+          - name: "image_urls"
+            selector: ".slick-slide:not(.slick-cloned) img"
+            type: "attribute"
+            attribute: "src"
+            multiple: true
+
+    interaction:
+      css_selector: "[class^='property-component']"
+      wait_for: |
+        js:() => {
+          return window.allButtonsClicked === true;
+        }
+      js_code: |
+        (async () => {
+          console.log("Starting sequential load-more button clicking...");
+
+          const waitForPropertyContainer = () => {
+            return new Promise(resolve => {
+              const check = setInterval(() => {
+                if (document.querySelector('.property-component')) {
+                  clearInterval(check);
+                  resolve();
+                }
+              }, 200);
+            });
+          };
+
+          await waitForPropertyContainer();
+          console.log('.property-container found. Starting sequential clicks.');
+
+          let clickCount = 0;
+          while (true) {
+            const btn = document.querySelector('.load-more');
+            if (!btn) {
+              console.log(`No more .load-more buttons found after ${clickCount} clicks.`);
+              break;
+            }
+
+            console.log(`Clicking load-more button #${clickCount + 1}...`);
+            btn.click();
+            clickCount++;
+
+            await new Promise(resolve => setTimeout(resolve, 2000));
+          }
+
+          await new Promise(resolve => setTimeout(resolve, 3000));
+
+          const propertyCount = document.querySelectorAll('[class^="property-component"]').length;
+          console.log(`Total properties found in DOM: ${propertyCount}`);
+
+          window.propertyCount = propertyCount;
+          window.allButtonsClicked = true;
+          console.log('All load-more buttons clicked. Ready for extraction.');
+        })();
+
+    timing:
+      page_timeout: 120000
+      # Note: delay_before_return_html causes hang when used with wait_for
+
+    cache:
+      mode: "bypass"
+
+    data:
+      required_keys:
+        - "full_address"
+        - "rent_price_brl"
+      unique_key_fields:
+        - "full_address"
+        - "rent_price_brl"
+        - "area_sqft"
+      output_file: "apolar_results.csv"
+      json_output_file: "apolar_extracted.json"
+
+    transform:
+      enabled: false

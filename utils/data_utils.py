@@ -3,8 +3,20 @@ import csv
 from models.property import Property
 
 
-def is_duplicate_property(property_address: str, seen_addresses: set) -> bool:
-    return property_address in seen_addresses
+def get_property_unique_key(property_data: dict) -> str:
+    """
+    Creates a unique key for a property based on address, price, and area.
+    This allows different units at the same address to be kept.
+    """
+    address = property_data.get("full_address", "")
+    price = property_data.get("rent_price_brl", 0)
+    area = property_data.get("area_sqft", 0)
+    return f"{address}|{price}|{area}"
+
+
+def is_duplicate_property(property_data: dict, seen_keys: set) -> bool:
+    key = get_property_unique_key(property_data)
+    return key in seen_keys
 
 
 def is_complete_property(property: dict, required_keys: list) -> bool:
