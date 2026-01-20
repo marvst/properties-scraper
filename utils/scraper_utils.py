@@ -4,6 +4,7 @@ from datetime import datetime
 from pathlib import Path
 from typing import List, Optional, Set, Union
 
+from bs4 import BeautifulSoup
 from crawl4ai import (
     AsyncWebCrawler,
     BrowserConfig,
@@ -194,10 +195,14 @@ def _default_transform(raw_property: dict) -> dict:
     bathrooms = parse_integer(raw_property.get("bathrooms_text", ""))
     garages = parse_integer(raw_property.get("garages_text", ""))
 
-    # Get image URLs (deduplicate)
+    # Get image URLs - normalize to list and deduplicate
     image_urls = raw_property.get("image_urls", [])
-    if isinstance(image_urls, list):
+    if isinstance(image_urls, str):
+        image_urls = [image_urls] if image_urls else []
+    elif isinstance(image_urls, list):
         image_urls = list(dict.fromkeys(image_urls))  # Remove duplicates, preserve order
+    else:
+        image_urls = []
 
     return {
         "city": city,
@@ -244,6 +249,37 @@ def _apply_custom_transforms(raw_property: dict, site_config: SiteConfig) -> dic
             result[field_name] = list(dict.fromkeys(result[field_name]))
 
     return result
+
+
+def _extract_images_from_html(html: str, base_selector: str, image_selector: str) -> List[List[str]]:
+    """Extract images from HTML using BeautifulSoup.
+
+    Workaround for crawl4ai's JsonCssExtractionStrategy not handling multiple: true correctly.
+
+    Args:
+        html: The page HTML content.
+        base_selector: The CSS selector for property cards.
+        image_selector: The CSS selector for images within each card.
+
+    Returns:
+        List of image URL lists, one per property card.
+    """
+    soup = BeautifulSoup(html, 'html.parser')
+    property_cards = soup.select(base_selector)
+
+    all_images = []
+    for card in property_cards:
+        images = card.select(image_selector)
+        urls = []
+        for img in images:
+            src = img.get('src') or img.get('data-lazy') or img.get('data-src')
+            if src and not src.startswith('data:'):
+                urls.append(src)
+        # Deduplicate while preserving order
+        urls = list(dict.fromkeys(urls))
+        all_images.append(urls)
+
+    return all_images
 
 
 async def fetch_and_process_page(
@@ -309,6 +345,19 @@ async def fetch_and_process_page(
 
     # Parse extracted content
     extracted_data = json.loads(result.extracted_content)
+
+    # Workaround for crawl4ai's multiple:true bug - extract images separately using BeautifulSoup
+    if site_config and site_config.extraction.css:
+        base_selector = site_config.extraction.css.base_selector
+        # Find the image field configuration
+        for field in site_config.extraction.css.fields:
+            if field.name == "image_urls" and field.multiple:
+                image_lists = _extract_images_from_html(result.html, base_selector, field.selector)
+                # Merge images back into extracted data
+                for i, images in enumerate(image_lists):
+                    if i < len(extracted_data):
+                        extracted_data[i]["image_urls"] = images
+                break
 
     # Save raw extracted JSON to extractions folder with timestamp
     extractions_dir = Path("extractions")

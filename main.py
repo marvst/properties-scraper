@@ -10,6 +10,7 @@ from rich.console import Console
 EXTRACTIONS_DIR = Path("extractions")
 
 from config import get_site_config, list_sites
+from database import DatabaseSync
 from utils.data_utils import save_results_to_csv
 from utils.extraction_factory import create_extraction_strategy
 from utils.scraper_utils import fetch_and_process_page, get_browser_config
@@ -152,6 +153,21 @@ async def crawl(site_name: str, config_path: str):
 
             save_results_to_csv(all_results, str(output_file))
             console.print(f"[green]Saved {len(all_results)} results to '{output_file}'.[/green]")
+
+            # Sync to vou-pra-curitiba database
+            status.update("[bold green]Syncing to database...")
+            source_name = site_config.name.split("_")[0]  # "apolar_apartments" -> "apolar"
+            base_url = site_config.url.split("/alugar")[0]
+            syncer = DatabaseSync(source=source_name, base_url=base_url)
+            try:
+                stats = syncer.sync_properties(all_results)
+                console.print(
+                    f"[green]Database sync: {stats['added']} added, {stats['updated']} updated[/green]"
+                )
+            except FileNotFoundError as e:
+                console.print(f"[yellow]Database sync skipped: {e}[/yellow]")
+            except Exception as e:
+                console.print(f"[red]Database sync failed: {e}[/red]")
         else:
             console.print("[yellow]No results were found during the crawl.[/yellow]")
 
