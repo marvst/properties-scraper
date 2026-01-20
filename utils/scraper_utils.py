@@ -119,7 +119,7 @@ def get_css_extraction_strategy() -> JsonCssExtractionStrategy:
 def parse_number(text: str) -> float:
     """
     Parses a Brazilian number format to float.
-    E.g., "R$ 3.100,00" -> 3100.00, "69 m2" -> 69.0
+    E.g., "R$ 3.100,00" -> 3100.00, "69 m²" -> 69.0
 
     Args:
         text: Text containing a number in Brazilian format.
@@ -129,8 +129,9 @@ def parse_number(text: str) -> float:
     """
     if not text:
         return 0.0
-    # Remove currency symbols, unit markers, and text
-    cleaned = re.sub(r"[R$m2\s]", "", text)
+    # Remove currency symbols and unit markers (R$, m², m2)
+    cleaned = re.sub(r"R\$|m²|m2", "", text, flags=re.IGNORECASE)
+    # Keep only digits, dots, and commas
     cleaned = re.sub(r"[^\d.,]", "", cleaned)
     # Convert Brazilian format (1.000,00) to standard (1000.00)
     cleaned = cleaned.replace(".", "").replace(",", ".")
@@ -178,11 +179,11 @@ def transform_property(raw_property: dict, site_config: Optional[SiteConfig] = N
 
 def _default_transform(raw_property: dict) -> dict:
     """Apply the default property transformation."""
-    # Parse address components
+    # Parse address components (format: "Neighborhood,City")
     address_others = raw_property.get("address_others", "")
-    parts = [p.strip() for p in address_others.replace(",", " ").split() if p.strip()]
+    parts = [p.strip() for p in address_others.split(",") if p.strip()]
     neighborhood = parts[0] if parts else ""
-    city = parts[-1] if len(parts) > 1 else parts[0] if parts else ""
+    city = parts[1] if len(parts) > 1 else ""
 
     street = raw_property.get("street", "")
     full_address = f"{street}, {neighborhood}, {city}".strip(", ")
