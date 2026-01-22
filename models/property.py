@@ -22,3 +22,19 @@ class Property(BaseModel):
     image_urls: list[str]
     description: Optional[str] = None
 
+    # Additional fields from details scraping
+    full_description: Optional[str] = None
+    amenities: Optional[list[str]] = None
+    additional_images: Optional[list[str]] = None
+    year_built: Optional[int] = None
+    floor_number: Optional[int] = None
+    total_floors: Optional[int] = None
+    property_tax_brl: Optional[float] = None
+    iptu_brl: Optional[float] = None
+    accepts_pets: Optional[bool] = None
+    furnished: Optional[bool] = None
+    virtual_tour_url: Optional[str] = None
+    floor_plan_url: Optional[str] = None
+    contact_phone: Optional[str] = None
+    contact_email: Optional[str] = None
+

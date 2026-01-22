@@ -14,11 +14,11 @@ defaults:
 sites:
   - name: "apolar_apartments"
     enabled: true
-    url: "https://www.apolar.com.br/alugar/apartamento/curitiba/2-quartos?mensal&country=Brasil&garage=1&price_max=R%24%203.100,00&area_min=50,00%20m%C2%B2&include_condominium_price=true"
+    url: "https://www.apolar.com.br/alugar/apartamento/curitiba/centro/2-quartos?mensal&country=Brasil&garage=1&price_max=R%24%203.100,00&area_min=50,00%20m%C2%B2&include_condominium_price=true"
 
     browser:
       browser_type: "chromium"
-      headless: true
+      headless: false
       verbose: true
 
     extraction:
@@ -132,3 +132,27 @@ sites:
 
     transform:
       enabled: false
+
+    details_scraping:
+      enabled: true  # Set to true when selectors are configured
+      max_concurrent_requests: 2
+      request_delay_ms: 2000
+      timeout_per_property: 30000
+      wait_for: "css:.slick-slide"
+      image_selectors:
+        - ".slick-slide:not(.slick-cloned) img"
+        - ".slick-slider img"
+      image_attributes:
+        - "src"
+        - "data-lazy"
+        - "data-src"
+      extraction:
+        type: "css"
+        css:
+          base_selector: "body"
+          fields:
+            - name: "additional_images"
+              selector: ".slick-slide:not(.slick-cloned) img"
+              type: "attribute"
+              attribute: "src"
+              multiple: true

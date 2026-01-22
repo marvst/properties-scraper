@@ -80,8 +80,13 @@ def from_procrawl(data: dict, source: str, base_url: str) -> RailsProperty:
     if rent_price is not None:
         total_price = rent_price + (condo_fee or 0)
 
-    # Build raw_data with image_urls
-    raw_data = {"image_urls": image_urls} if image_urls else {}
+    # Build raw_data with image_urls and additional_images
+    raw_data = {}
+    if image_urls:
+        raw_data["image_urls"] = image_urls
+    additional_images = data.get("additional_images", [])
+    if additional_images:
+        raw_data["additional_images"] = additional_images
 
     return RailsProperty(
         external_id=external_id,

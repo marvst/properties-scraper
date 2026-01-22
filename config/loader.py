@@ -8,6 +8,7 @@ from config.site_config import (
     CacheConfig,
     DataConfig,
     DefaultsConfig,
+    DetailsScrapingConfig,
     InteractionConfig,
     SiteConfig,
     SitesConfig,
@@ -127,6 +128,9 @@ def _merge_defaults(site: SiteConfig, defaults: Optional[DefaultsConfig]) -> Sit
     if site.interaction is None:
         site_data["interaction"] = InteractionConfig().model_dump()
 
+    if site.details_scraping is None:
+        site_data["details_scraping"] = DetailsScrapingConfig().model_dump()
+
     return SiteConfig(**site_data)
 
 
@@ -151,6 +155,9 @@ def _apply_hardcoded_defaults(site: SiteConfig) -> SiteConfig:
 
     if site.interaction is None:
         site_data["interaction"] = InteractionConfig().model_dump()
+
+    if site.details_scraping is None:
+        site_data["details_scraping"] = DetailsScrapingConfig().model_dump()
 
     return SiteConfig(**site_data)
 

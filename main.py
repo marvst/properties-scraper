@@ -12,6 +12,7 @@ EXTRACTIONS_DIR = Path("extractions")
 from config import get_site_config, list_sites
 from database import DatabaseSync
 from utils.data_utils import save_results_to_csv
+from utils.details_scraper import PropertyDetailsScraper
 from utils.extraction_factory import create_extraction_strategy
 from utils.scraper_utils import fetch_and_process_page, get_browser_config
 
@@ -103,7 +104,7 @@ async def crawl(site_name: str, config_path: str):
         session_id = f"crawl_{site_config.name}"
 
         # Get CSS selector and required keys from config
-        css_selector = None
+        css_selector = ""
         if site_config.interaction and site_config.interaction.css_selector:
             css_selector = site_config.interaction.css_selector
         elif site_config.extraction.css:
@@ -138,6 +139,18 @@ async def crawl(site_name: str, config_path: str):
 
         # Add the results to the total list
         all_results.extend(results)
+
+        # Scrape property details if enabled
+        if site_config.details_scraping and site_config.details_scraping.enabled and all_results:
+            console.print("[bold blue]Scraping property details...[/bold blue]")
+            try:
+                details_scraper = PropertyDetailsScraper(site_config)
+                all_results = await details_scraper.scrape_property_details(
+                    all_results, session_id
+                )
+            except Exception as e:
+                console.print(f"[red]Details scraping failed: {e}[/red]")
+                console.print("[yellow]Continuing with listing data only.[/yellow]")
 
     with console.status("[bold green]Saving results...") as status:
 

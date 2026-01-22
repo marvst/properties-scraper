@@ -93,6 +93,28 @@ class TransformConfig(BaseModel):
     deduplicate_fields: list[str] = Field(default_factory=list)
 
 
+class DetailsExtractionConfig(BaseModel):
+    """Extraction strategy configuration for property details."""
+
+    type: Literal["css", "llm"] = "css"
+    css: Optional[CssExtractionConfig] = None
+    llm: Optional[LlmExtractionConfig] = None
+
+
+class DetailsScrapingConfig(BaseModel):
+    """Configuration for property details page scraping."""
+
+    enabled: bool = False
+    max_concurrent_requests: int = 3
+    request_delay_ms: int = 1000
+    timeout_per_property: int = 30000
+    wait_for: Optional[str] = None
+    js_code: Optional[str] = None  # JS to run before extraction
+    image_selectors: list[str] = Field(default_factory=list)  # CSS selectors to try for images
+    image_attributes: list[str] = Field(default_factory=lambda: ["src", "data-lazy", "data-src"])
+    extraction: Optional[DetailsExtractionConfig] = None
+
+
 class DataConfig(BaseModel):
     """Data output configuration."""
 
@@ -116,6 +138,7 @@ class SiteConfig(BaseModel):
     cache: Optional[CacheConfig] = None
     data: Optional[DataConfig] = None
     transform: Optional[TransformConfig] = None
+    details_scraping: Optional[DetailsScrapingConfig] = None
 
 
 class DefaultsConfig(BaseModel):

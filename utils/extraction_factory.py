@@ -3,11 +3,11 @@ from typing import Union
 
 from crawl4ai import JsonCssExtractionStrategy, LLMExtractionStrategy
 
-from config.site_config import ExtractionConfig
+from config.site_config import DetailsExtractionConfig, ExtractionConfig
 
 
 def create_extraction_strategy(
-    extraction_config: ExtractionConfig,
+    extraction_config: Union[ExtractionConfig, DetailsExtractionConfig],
 ) -> Union[JsonCssExtractionStrategy, LLMExtractionStrategy]:
     """
     Create an extraction strategy from configuration.
