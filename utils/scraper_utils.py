@@ -72,50 +72,6 @@ def get_cache_mode(site_config: SiteConfig) -> CacheMode:
     return mode_map.get(site_config.cache.mode, CacheMode.BYPASS)
 
 
-def get_css_extraction_schema() -> dict:
-    """
-    Returns the CSS extraction schema for property data.
-    This is kept for backward compatibility.
-
-    Returns:
-        dict: Schema mapping CSS selectors to property fields.
-    """
-    return {
-        "name": "properties",
-        "baseSelector": ".property-component",
-        "fields": [
-            {"name": "property_type", "selector": ".property-type", "type": "text"},
-            {"name": "street", "selector": ".property-street", "type": "text"},
-            {"name": "address_others", "selector": ".property-address-others", "type": "text"},
-            {"name": "garages_text", "selector": ".feature.car", "type": "text"},
-            {"name": "bedrooms_text", "selector": ".feature.bed", "type": "text"},
-            {"name": "area_text", "selector": ".feature.ruler", "type": "text"},
-            {"name": "bathrooms_text", "selector": ".feature.bw", "type": "text"},
-            {"name": "rent_price_text", "selector": ".property-current-price", "type": "text"},
-            {"name": "condo_fee_text", "selector": ".property-codominum-price", "type": "text"},
-            {"name": "property_url", "selector": "a.info-area-wrapper", "type": "attribute", "attribute": "href"},
-            {
-                "name": "image_urls",
-                "selector": ".slick-slide:not(.slick-cloned) img",
-                "type": "attribute",
-                "attribute": "src",
-                "multiple": True,
-            },
-        ],
-    }
-
-
-def get_css_extraction_strategy() -> JsonCssExtractionStrategy:
-    """
-    Returns the CSS extraction strategy for property data.
-    This is kept for backward compatibility.
-
-    Returns:
-        JsonCssExtractionStrategy: The strategy for extracting data using CSS selectors.
-    """
-    return JsonCssExtractionStrategy(schema=get_css_extraction_schema())
-
-
 def parse_number(text: str) -> float:
     """
     Parses a Brazilian number format to float.
@@ -341,6 +297,9 @@ async def fetch_and_process_page(
     )
 
     if not (result.success and result.extracted_content):
+        # Check if it's a wait_for timeout (likely means no results on page)
+        if result.error_message and "Wait condition failed" in result.error_message:
+            return []  # Silently return empty - pagination will stop
         print(f"Error fetching page: {result.error_message}")
         return []
 

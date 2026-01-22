@@ -1,6 +1,7 @@
 import asyncio
 import json
 from typing import Dict, List
+from urllib.parse import urlparse, urljoin
 
 from bs4 import BeautifulSoup
 from crawl4ai import AsyncWebCrawler, CrawlerRunConfig
@@ -8,9 +9,90 @@ from rich.console import Console
 
 from config.site_config import SiteConfig
 from utils.extraction_factory import create_extraction_strategy
-from utils.scraper_utils import get_browser_config, get_cache_mode
+from utils.scraper_utils import get_browser_config, get_cache_mode, parse_number
 
 console = Console()
+
+
+def _post_process_llm_extracted_details(details: Dict, property_data: Dict) -> Dict:
+    """
+    Post-process LLM-extracted details data.
+
+    Converts text fee values to numeric values and maps fields to the
+    expected property model format.
+
+    Args:
+        details: The LLM-extracted details dictionary.
+        property_data: The original property data from listing page.
+
+    Returns:
+        Enhanced property dictionary with processed fee data.
+    """
+    enhanced = {**property_data, **details}
+
+    # Parse fee text values to numeric
+    if details.get("condo_fee_text"):
+        enhanced["condo_fee_brl"] = parse_number(details["condo_fee_text"])
+
+    if details.get("iptu_text"):
+        enhanced["iptu_brl"] = parse_number(details["iptu_text"])
+
+    if details.get("fire_insurance_text"):
+        # Add fire insurance to other_fees_brl
+        fire_insurance = parse_number(details["fire_insurance_text"])
+        existing_other_fees = enhanced.get("other_fees_brl", 0.0)
+        if isinstance(existing_other_fees, (int, float)):
+            enhanced["other_fees_brl"] = existing_other_fees + fire_insurance
+        else:
+            enhanced["other_fees_brl"] = fire_insurance
+
+    # Parse area values if provided
+    if details.get("total_area_text"):
+        area_value = parse_number(details["total_area_text"])
+        if area_value > 0:
+            enhanced["area_sqft"] = area_value
+
+    if details.get("private_area_text"):
+        enhanced["private_area_sqft"] = parse_number(details["private_area_text"])
+
+    # Override address if details page has better data
+    if details.get("full_address"):
+        full_addr = details["full_address"]
+        enhanced["full_address"] = full_addr
+
+        # Try to parse address components from full_address
+        # Format is typically: "Street, Number - Neighborhood, City - State"
+        addr_parts = full_addr.split(" - ")
+        if len(addr_parts) >= 2:
+            # Last part is usually "City - State" or just neighborhood/city
+            location_part = addr_parts[-1] if len(addr_parts) > 1 else ""
+            location_parts = [p.strip() for p in location_part.split(",")]
+
+            if location_parts:
+                # Try to extract city (usually after the neighborhood)
+                if len(location_parts) >= 2:
+                    enhanced["neighborhood"] = location_parts[0]
+                    enhanced["city"] = location_parts[1]
+                elif len(addr_parts) >= 2:
+                    # Might be: "Street - Neighborhood, City"
+                    neighborhood_city = addr_parts[1].split(",")
+                    if len(neighborhood_city) >= 2:
+                        enhanced["neighborhood"] = neighborhood_city[0].strip()
+                        enhanced["city"] = neighborhood_city[1].strip()
+
+    # Handle description
+    if details.get("full_description"):
+        enhanced["description"] = details["full_description"]
+
+    # Handle amenities (convert list to comma-separated string if needed)
+    if details.get("amenities"):
+        amenities = details["amenities"]
+        if isinstance(amenities, list):
+            enhanced["amenities"] = ", ".join(amenities)
+        else:
+            enhanced["amenities"] = str(amenities)
+
+    return enhanced
 
 
 class PropertyDetailsScraper:
@@ -187,6 +269,13 @@ class PropertyDetailsScraper:
             Enhanced property dictionary with details merged in.
         """
         url = property_data['property_url']
+
+        # Make URL absolute if it's relative
+        if not url.startswith(('http://', 'https://')):
+            parsed_site_url = urlparse(self.site_config.url)
+            base_url = self.site_config.base_url or f"{parsed_site_url.scheme}://{parsed_site_url.netloc}"
+            url = urljoin(base_url, url)
+
         console.print(f"[dim]Scraping details: {url[:60]}...[/dim]")
 
         # Configure crawler run
@@ -226,6 +315,9 @@ class PropertyDetailsScraper:
             try:
                 details_data = json.loads(result.extracted_content)
 
+                # Debug: show what LLM extracted
+                console.print(f"[dim cyan]LLM extracted: {json.dumps(details_data, indent=2, ensure_ascii=False)[:500]}...[/dim cyan]")
+
                 # For now, assume single property extraction (not a list)
                 if isinstance(details_data, list) and details_data:
                     details = details_data[0]
@@ -235,8 +327,12 @@ class PropertyDetailsScraper:
                     console.print(f"[yellow]Unexpected extracted data format for {url}[/yellow]")
                     return property_data
 
-                # Merge details into property data
-                enhanced_property = {**property_data, **details}
+                # Merge and post-process details into property data
+                # Use post-processing for LLM-extracted data (handles fee parsing, address, etc.)
+                enhanced_property = _post_process_llm_extracted_details(details, property_data)
+
+                # Debug: show key fields after post-processing
+                console.print(f"[dim magenta]After processing: condo_fee_brl={enhanced_property.get('condo_fee_brl')}, iptu_brl={enhanced_property.get('iptu_brl')}, neighborhood={enhanced_property.get('neighborhood')}, city={enhanced_property.get('city')}[/dim magenta]")
 
                 # Extract images from raw HTML (handles lazy-loaded images)
                 if result.html:

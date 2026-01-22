@@ -69,6 +69,15 @@ class CacheConfig(BaseModel):
     mode: Literal["enabled", "disabled", "bypass", "read_only", "write_only"] = "bypass"
 
 
+class PaginationConfig(BaseModel):
+    """URL-based pagination configuration."""
+
+    enabled: bool = False
+    start_page: int = 1
+    max_pages: Optional[int] = None  # None means scrape until no results
+    page_template: str = "-pagina-{page}"  # Appended to base URL for page > 1
+
+
 class NumericFieldTransform(BaseModel):
     """Numeric field transformation configuration."""
 
@@ -130,12 +139,15 @@ class SiteConfig(BaseModel):
     name: str
     enabled: bool = True
     url: str
+    source: Optional[str] = None  # e.g., "apolar" - defaults to name.split("_")[0]
+    base_url: Optional[str] = None  # e.g., "https://www.apolar.com.br" - defaults to url's origin
 
     browser: Optional[BrowserConfig] = None
     extraction: ExtractionConfig
     interaction: Optional[InteractionConfig] = None
     timing: Optional[TimingConfig] = None
     cache: Optional[CacheConfig] = None
+    pagination: Optional[PaginationConfig] = None
     data: Optional[DataConfig] = None
     transform: Optional[TransformConfig] = None
     details_scraping: Optional[DetailsScrapingConfig] = None

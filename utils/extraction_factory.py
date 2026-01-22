@@ -1,7 +1,7 @@
 import os
 from typing import Union
 
-from crawl4ai import JsonCssExtractionStrategy, LLMExtractionStrategy
+from crawl4ai import JsonCssExtractionStrategy, LLMConfig, LLMExtractionStrategy
 
 from config.site_config import DetailsExtractionConfig, ExtractionConfig
 
@@ -70,18 +70,43 @@ def _create_llm_strategy(
     if extraction_config.llm is None:
         raise ValueError("LLM extraction config required when type is 'llm'")
 
-    llm_config = extraction_config.llm
+    yaml_llm_config = extraction_config.llm
 
     # Get API token from environment variable
-    api_token = os.environ.get(llm_config.api_token_env)
+    api_token = os.environ.get(yaml_llm_config.api_token_env)
     if not api_token:
         raise ValueError(
-            f"API token not found in environment variable: {llm_config.api_token_env}"
+            f"API token not found in environment variable: {yaml_llm_config.api_token_env}"
         )
 
-    return LLMExtractionStrategy(
-        provider=llm_config.provider,
+    # Use new LLMConfig API
+    llm_config = LLMConfig(
+        provider=yaml_llm_config.provider,
         api_token=api_token,
-        instruction=llm_config.instruction,
-        input_format=llm_config.input_format,
+    )
+
+    # Define schema for structured extraction
+    schema = {
+        "type": "object",
+        "properties": {
+            "full_address": {"type": "string", "description": "Complete address with street, number, neighborhood, city, state"},
+            "condo_fee_text": {"type": "string", "description": "Monthly condo/condominium fee (Condomínio) as shown, e.g. 'R$ 455,00'"},
+            "iptu_text": {"type": "string", "description": "IPTU property tax as shown, e.g. 'R$ 69,00'"},
+            "fire_insurance_text": {"type": "string", "description": "Fire insurance (Seguro incêndio) as shown, e.g. 'R$ 40,00'"},
+            "total_monthly_cost_text": {"type": "string", "description": "Total monthly cost as shown"},
+            "full_description": {"type": "string", "description": "Full property description text"},
+            "amenities": {"type": "array", "items": {"type": "string"}, "description": "List of amenities and features"},
+            "total_area_text": {"type": "string", "description": "Total area in m²"},
+            "private_area_text": {"type": "string", "description": "Private area in m²"},
+        },
+        "required": ["full_address"],
+    }
+
+    return LLMExtractionStrategy(
+        llm_config=llm_config,
+        instruction=yaml_llm_config.instruction,
+        schema=schema,
+        extraction_type="schema",
+        input_format=yaml_llm_config.input_format,
+        verbose=True,
     )

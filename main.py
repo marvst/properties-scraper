@@ -3,9 +3,13 @@ import asyncio
 import sys
 from datetime import datetime
 from pathlib import Path
+from urllib.parse import urlparse
 
+from dotenv import load_dotenv
 from crawl4ai import AsyncWebCrawler
 from rich.console import Console
+
+load_dotenv()
 
 EXTRACTIONS_DIR = Path("extractions")
 
@@ -121,24 +125,66 @@ async def crawl(site_name: str, config_path: str):
     # Start the web crawler context - stop spinner during crawl to avoid event loop interference
     console.print("[bold blue]Starting browser...")
     async with AsyncWebCrawler(config=browser_config) as crawler:
-        # Fetch and process data from the page
-        console.print("[bold blue]Fetching page and extracting data...")
-        results = await fetch_and_process_page(
-            crawler,
-            site_config.url,
-            css_selector,
-            extraction_strategy,
-            session_id,
-            required_keys,
-            seen_names,
-            site_config,
-        )
+        # Check if pagination is enabled
+        pagination = site_config.pagination
+        if pagination and pagination.enabled:
+            # URL-based pagination
+            current_page = pagination.start_page
+            max_pages = pagination.max_pages
+            base_url = site_config.url
 
-        if not results:
-            console.print("[yellow]No results extracted from the page.[/yellow]")
+            while True:
+                # Generate URL for current page
+                if current_page == 1:
+                    page_url = base_url
+                else:
+                    page_url = base_url + pagination.page_template.format(page=current_page)
 
-        # Add the results to the total list
-        all_results.extend(results)
+                console.print(f"[bold blue]Fetching page {current_page}: {page_url}[/bold blue]")
+
+                results = await fetch_and_process_page(
+                    crawler,
+                    page_url,
+                    css_selector,
+                    extraction_strategy,
+                    session_id,
+                    required_keys,
+                    seen_names,
+                    site_config,
+                )
+
+                if not results:
+                    console.print(f"[yellow]No results on page {current_page}. Stopping pagination.[/yellow]")
+                    break
+
+                console.print(f"[green]Found {len(results)} results on page {current_page}[/green]")
+                all_results.extend(results)
+
+                # Check if we've reached max_pages
+                if max_pages and current_page >= max_pages:
+                    console.print(f"[yellow]Reached max_pages ({max_pages}). Stopping pagination.[/yellow]")
+                    break
+
+                current_page += 1
+        else:
+            # Single page scraping (original behavior)
+            console.print("[bold blue]Fetching page and extracting data...")
+            results = await fetch_and_process_page(
+                crawler,
+                site_config.url,
+                css_selector,
+                extraction_strategy,
+                session_id,
+                required_keys,
+                seen_names,
+                site_config,
+            )
+
+            if not results:
+                console.print("[yellow]No results extracted from the page.[/yellow]")
+
+            # Add the results to the total list
+            all_results.extend(results)
 
         # Scrape property details if enabled
         if site_config.details_scraping and site_config.details_scraping.enabled and all_results:
@@ -169,8 +215,10 @@ async def crawl(site_name: str, config_path: str):
 
             # Sync to vou-pra-curitiba database
             status.update("[bold green]Syncing to database...")
-            source_name = site_config.name.split("_")[0]  # "apolar_apartments" -> "apolar"
-            base_url = site_config.url.split("/alugar")[0]
+            # Use explicit config or derive sensible defaults
+            parsed_url = urlparse(site_config.url)
+            source_name = site_config.source or site_config.name.split("_")[0]
+            base_url = site_config.base_url or f"{parsed_url.scheme}://{parsed_url.netloc}"
             syncer = DatabaseSync(source=source_name, base_url=base_url)
             try:
                 stats = syncer.sync_properties(all_results)

@@ -28,11 +28,17 @@ def save_results_to_csv(properties: list, filename: str):
         print("No properties to save.")
         return
 
-    # Use field names from the Venue model
-    fieldnames = Property.model_fields.keys()
+    # Use field names from the Property model
+    fieldnames = set(Property.model_fields.keys())
+
+    # Filter each property to only include known fields
+    filtered_properties = [
+        {k: v for k, v in prop.items() if k in fieldnames}
+        for prop in properties
+    ]
 
     with open(filename, mode="w", newline="", encoding="utf-8") as file:
         writer = csv.DictWriter(file, fieldnames=fieldnames)
         writer.writeheader()
-        writer.writerows(properties)
-    print(f"Saved {len(properties)} properties to '{filename}'.")
+        writer.writerows(filtered_properties)
+    print(f"Saved {len(filtered_properties)} properties to '{filename}'.")
