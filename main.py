@@ -15,7 +15,7 @@ EXTRACTIONS_DIR = Path("extractions")
 
 from config import get_site_config, list_sites
 from database import DatabaseSync
-from utils.data_utils import save_results_to_csv
+# from utils.data_utils import save_results_to_csv
 from utils.details_scraper import PropertyDetailsScraper
 from utils.extraction_factory import create_extraction_strategy
 from utils.scraper_utils import fetch_and_process_page, get_browser_config
@@ -29,23 +29,23 @@ def parse_args():
         description="Procrawl - YAML-configured web scraper",
         formatter_class=argparse.RawDescriptionHelpFormatter,
         epilog="""
-Examples:
-  python main.py --list                    List available sites
-  python main.py apolar_apartments         Crawl a specific site
-  python main.py my_site --config custom.yaml  Use custom config file
-        """,
+ Examples:
+   python main.py --list                    List available sites
+   python main.py apolar_apartments         Crawl a specific site
+   python main.py my_site --config custom_sites_dir  Use custom sites directory
+         """,
     )
 
     parser.add_argument(
         "site",
         nargs="?",
-        help="Name of the site to crawl (from sites.yaml)",
+        help="Name of the site to crawl (from sites/ directory)",
     )
     parser.add_argument(
         "--config",
         "-c",
-        default="sites.yaml",
-        help="Path to YAML config file (default: sites.yaml)",
+        default="sites",
+        help="Path to directory containing site YAML files (default: sites)",
     )
     parser.add_argument(
         "--list",
@@ -62,8 +62,8 @@ def print_sites_list(config_path: str):
     try:
         sites = list_sites(config_path)
     except FileNotFoundError:
-        print(f"Error: Config file not found: {config_path}")
-        print("Create a sites.yaml file or specify a different config with --config")
+        print(f"Error: Sites directory not found: {config_path}")
+        print("Create a sites/ directory with site YAML files or specify a different directory with --config")
         sys.exit(1)
 
     if not sites:
@@ -85,14 +85,14 @@ async def crawl(site_name: str, config_path: str):
 
     Args:
         site_name: The name of the site to crawl.
-        config_path: Path to the YAML config file.
+        config_path: Path to the directory containing site YAML files.
     """
     with console.status("[bold blue]Loading configuration...") as status:
         # Load site configuration
         try:
             site_config = get_site_config(site_name, config_path)
         except FileNotFoundError:
-            console.print(f"[red]Error: Config file not found: {config_path}[/red]")
+            console.print(f"[red]Error: Sites directory not found: {config_path}[/red]")
             sys.exit(1)
         except ValueError as e:
             console.print(f"[red]Error: {e}[/red]")
@@ -200,20 +200,21 @@ async def crawl(site_name: str, config_path: str):
 
     with console.status("[bold green]Saving results...") as status:
 
-        # Save the collected results to a CSV file
+        # # Save the collected results to a CSV file
+        # if all_results:
+        #     status.update("[bold green]Saving results...")
+        #     # Ensure extractions directory exists
+        #     EXTRACTIONS_DIR.mkdir(exist_ok=True)
+
+        #     # Generate timestamped filename
+        #     timestamp = datetime.now().strftime("%Y%m%d_%H%M%S")
+        #     output_file = EXTRACTIONS_DIR / f"{site_config.name}_{timestamp}.csv"
+
+        #     save_results_to_csv(all_results, str(output_file))
+        #     console.print(f"[green]Saved {len(all_results)} results to '{output_file}'.[/green]")
+
+        # Sync to vou-pra-curitiba database
         if all_results:
-            status.update("[bold green]Saving results...")
-            # Ensure extractions directory exists
-            EXTRACTIONS_DIR.mkdir(exist_ok=True)
-
-            # Generate timestamped filename
-            timestamp = datetime.now().strftime("%Y%m%d_%H%M%S")
-            output_file = EXTRACTIONS_DIR / f"{site_config.name}_{timestamp}.csv"
-
-            save_results_to_csv(all_results, str(output_file))
-            console.print(f"[green]Saved {len(all_results)} results to '{output_file}'.[/green]")
-
-            # Sync to vou-pra-curitiba database
             status.update("[bold green]Syncing to database...")
             # Use explicit config or derive sensible defaults
             parsed_url = urlparse(site_config.url)

@@ -1,5 +1,5 @@
 from pathlib import Path
-from typing import Optional
+from typing import Optional, List
 
 import yaml
 
@@ -11,51 +11,68 @@ from config.site_config import (
     DetailsScrapingConfig,
     InteractionConfig,
     SiteConfig,
-    SitesConfig,
     TimingConfig,
     TransformConfig,
 )
 
-DEFAULT_CONFIG_FILE = "sites.yaml"
+DEFAULT_SITES_DIR = "sites"
 
 
-def load_sites_config(config_path: Optional[str] = None) -> SitesConfig:
+def load_sites_config(sites_dir: Optional[str] = None) -> List[SiteConfig]:
     """
-    Load and validate the sites configuration from a YAML file.
+    Load and validate all site configurations from YAML files in the sites directory.
 
     Args:
-        config_path: Path to the YAML config file. Defaults to 'sites.yaml'.
+        sites_dir: Path to the directory containing site YAML files. Defaults to 'sites'.
 
     Returns:
-        SitesConfig: Validated configuration object.
+        List[SiteConfig]: List of validated site configuration objects.
 
     Raises:
-        FileNotFoundError: If the config file doesn't exist.
-        ValueError: If the config file is invalid.
+        FileNotFoundError: If the sites directory doesn't exist.
+        ValueError: If no valid site configurations are found.
     """
-    path = Path(config_path) if config_path else Path(DEFAULT_CONFIG_FILE)
+    sites_path = Path(sites_dir) if sites_dir else Path(DEFAULT_SITES_DIR)
 
-    if not path.exists():
-        raise FileNotFoundError(f"Configuration file not found: {path}")
+    if not sites_path.exists():
+        raise FileNotFoundError(f"Sites directory not found: {sites_path}")
 
-    with open(path, encoding="utf-8") as f:
-        raw_config = yaml.safe_load(f)
+    if not sites_path.is_dir():
+        raise ValueError(f"Path is not a directory: {sites_path}")
 
-    if not raw_config:
-        raise ValueError(f"Empty configuration file: {path}")
+    site_configs = []
 
-    return SitesConfig(**raw_config)
+    # Load all .yaml and .yml files from the sites directory
+    for yaml_file in sites_path.glob("*.yaml"):
+        try:
+            with open(yaml_file, encoding="utf-8") as f:
+                raw_config = yaml.safe_load(f)
+
+            if not raw_config:
+                continue
+
+            # Each file should contain a complete site configuration
+            site_config = SiteConfig(**raw_config)
+            site_configs.append(site_config)
+
+        except Exception as e:
+            raise ValueError(f"Error loading site config from {yaml_file}: {e}")
+
+    if not site_configs:
+        raise ValueError(f"No valid site configurations found in {sites_path}")
+
+    return site_configs
 
 
 def get_site_config(
-    site_name: str, config_path: Optional[str] = None
+    site_name: str, sites_dir: Optional[str] = None
 ) -> SiteConfig:
     """
     Get configuration for a specific site by name.
 
     Args:
         site_name: The name/identifier of the site.
-        config_path: Path to the YAML config file.
+        sites_dir: Path to the directory containing site YAML files.
 
     Returns:
         SiteConfig: The site configuration with defaults merged in.
@@ -63,26 +80,43 @@ def get_site_config(
     Raises:
         ValueError: If the site is not found or is disabled.
     """
-    config = load_sites_config(config_path)
+    sites_path = Path(sites_dir) if sites_dir else Path(DEFAULT_SITES_DIR)
+    site_file = sites_path / f"{site_name}.yaml"
 
-    # Find the site
-    site = None
-    for s in config.sites:
-        if s.name == site_name:
-            site = s
-            break
-
-    if site is None:
-        available = [s.name for s in config.sites]
+    if not site_file.exists():
+        # List available sites for error message
+        available_sites = list_sites(sites_dir)
+        available_names = [site["name"] for site in available_sites]
         raise ValueError(
-            f"Site '{site_name}' not found. Available sites: {available}"
+            f"Site '{site_name}' not found. Available sites: {available_names}"
         )
 
-    if not site.enabled:
-        raise ValueError(f"Site '{site_name}' is disabled.")
+    try:
+        with open(site_file, encoding="utf-8") as f:
+            raw_config = yaml.safe_load(f)
 
-    # Merge defaults into site config
-    return _merge_defaults(site, config.defaults)
+        if not raw_config:
+            raise ValueError(f"Empty configuration file: {site_file}")
+
+        # Extract defaults if present
+        defaults_config = None
+        if "defaults" in raw_config:
+            defaults_config = DefaultsConfig(**raw_config["defaults"])
+            # Remove defaults from site config
+            site_raw_config = {k: v for k, v in raw_config.items() if k != "defaults"}
+        else:
+            site_raw_config = raw_config
+
+        site = SiteConfig(**site_raw_config)
+
+        if not site.enabled:
+            raise ValueError(f"Site '{site_name}' is disabled.")
+
+        # Apply defaults merging
+        return _merge_defaults(site, defaults_config)
+
+    except Exception as e:
+        raise ValueError(f"Error loading site config for '{site_name}': {e}")
 
 
 def _merge_defaults(site: SiteConfig, defaults: Optional[DefaultsConfig]) -> SiteConfig:
@@ -162,23 +196,47 @@ def _apply_hardcoded_defaults(site: SiteConfig) -> SiteConfig:
     return SiteConfig(**site_data)
 
 
-def list_sites(config_path: Optional[str] = None) -> list[dict]:
+def list_sites(sites_dir: Optional[str] = None) -> list[dict]:
     """
-    List all available sites from the configuration.
+    List all available sites from the sites directory.
 
     Args:
-        config_path: Path to the YAML config file.
+        sites_dir: Path to the directory containing site YAML files.
 
     Returns:
         list[dict]: List of site info dicts with name, enabled status, and URL.
     """
-    config = load_sites_config(config_path)
+    sites_path = Path(sites_dir) if sites_dir else Path(DEFAULT_SITES_DIR)
 
-    return [
-        {
-            "name": site.name,
-            "enabled": site.enabled,
-            "url": site.url[:60] + "..." if len(site.url) > 60 else site.url,
-        }
-        for site in config.sites
-    ]
+    if not sites_path.exists():
+        return []
+
+    sites = []
+
+    # Load all .yaml files from the sites directory
+    for yaml_file in sites_path.glob("*.yaml"):
+        try:
+            with open(yaml_file, encoding="utf-8") as f:
+                raw_config = yaml.safe_load(f)
+
+            if not raw_config:
+                continue
+
+            # Extract basic info without full validation
+            site_info = {
+                "name": raw_config.get("name", yaml_file.stem),
+                "enabled": raw_config.get("enabled", True),
+                "url": raw_config.get("url", ""),
+            }
+
+            # Truncate URL if too long
+            if len(site_info["url"]) > 60:
+                site_info["url"] = site_info["url"][:60] + "..."
+
+            sites.append(site_info)
+
+        except Exception:
+            # Skip files that can't be parsed
+            continue
+
+    return sites

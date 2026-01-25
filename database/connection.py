@@ -17,7 +17,7 @@ def get_database_path() -> str:
 
     # Default: relative path from procrawl directory (Rails 8+ uses storage/)
     procrawl_root = Path(__file__).parent.parent
-    default_path = procrawl_root.parent / "vou-pra-curitiba" / "storage" / "development.sqlite3"
+    default_path = procrawl_root.parent / "app" / "storage" / "development.sqlite3"
     return str(default_path)
 
 

@@ -135,11 +135,18 @@ def transform_property(raw_property: dict, site_config: Optional[SiteConfig] = N
 
 def _default_transform(raw_property: dict) -> dict:
     """Apply the default property transformation."""
-    # Parse address components (format: "Neighborhood,City")
-    address_others = raw_property.get("address_others", "")
-    parts = [p.strip() for p in address_others.split(",") if p.strip()]
-    neighborhood = parts[0] if parts else ""
-    city = parts[1] if len(parts) > 1 else ""
+    # Use already-extracted fields if available, otherwise parse from address_others
+    neighborhood = raw_property.get("neighborhood", "")
+    city = raw_property.get("city", "")
+
+    # Fallback: parse from address_others (format: "Neighborhood, City")
+    if not neighborhood or not city:
+        address_others = raw_property.get("address_others", "")
+        parts = [p.strip() for p in address_others.split(",") if p.strip()]
+        if not neighborhood:
+            neighborhood = parts[0] if parts else ""
+        if not city:
+            city = parts[1] if len(parts) > 1 else ""
 
     street = raw_property.get("street", "")
     full_address = f"{street}, {neighborhood}, {city}".strip(", ")

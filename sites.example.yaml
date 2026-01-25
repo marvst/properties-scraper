@@ -1,10 +1,17 @@
-# Procrawl Sites Configuration
-# Copy this file to sites.yaml and customize for your needs.
+# Procrawl Site Configuration Example
+# This is an example of a single site configuration file.
+# Copy this file to sites/your_site_name.yaml and customize for your needs.
+#
+# Directory Structure:
+#   sites/
+#     ├── your_site_name.yaml    # Individual site config
+#     ├── another_site.yaml      # Another site config
+#     └── ...
 #
 # Usage:
-#   python main.py --list                    # List available sites
-#   python main.py <site_name>               # Crawl a specific site
-#   python main.py <site_name> --config custom.yaml  # Use custom config
+#   python main.py --list                        # List available sites
+#   python main.py <site_name>                   # Crawl a specific site
+#   python main.py <site_name> --config custom_sites_dir  # Use custom sites directory
 
 # =============================================================================
 # DEFAULTS (optional)
