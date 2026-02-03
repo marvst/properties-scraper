@@ -1,4 +1,4 @@
-# Procrawl Site Configuration Example
+# Procrawl Site Configuration Example (New Flat Structure)
 # This is an example of a single site configuration file.
 # Copy this file to sites/your_site_name.yaml and customize for your needs.
 #
@@ -14,281 +14,215 @@
 #   python main.py <site_name> --config custom_sites_dir  # Use custom sites directory
 
 # =============================================================================
-# DEFAULTS (optional)
-# Values here are applied to all sites unless overridden
+# EXAMPLE 1: URL-based Pagination (like galvao)
 # =============================================================================
-defaults:
-  browser:
-    browser_type: chromium    # chromium | firefox | webkit
-    headless: true            # Run browser in headless mode
-    verbose: false            # Enable verbose logging
+name: "example_url_pagination"
+enabled: false
+url: "https://www.example.com/listings"
+base_url: "https://www.example.com"
 
-  timing:
-    page_timeout: 60000            # Max time to wait for page load (ms)
-    delay_before_return_html: 0    # Wait after page load before extraction (ms)
+browser:
+  browser_type: "chromium"    # chromium | firefox | webkit
+  headless: true              # Run browser in headless mode
+  verbose: true               # Enable verbose logging
+
+listing_scraping:
+  # Setup configuration - runs before extraction
+  setup:
+    wait_for:
+      css: ".listing-card"    # Wait for this CSS selector to appear
+      # Alternatives:
+      # js: "() => document.querySelectorAll('.card').length > 0"
+      # time: 5000  # Wait 5 seconds
+    page_timeout: 60000       # Max time to wait for page load (ms)
+    cache_mode: "bypass"      # enabled | disabled | bypass | read_only | write_only
+
+    # Pre-extraction interactions (optional) - run before any extraction
+    # Useful for cookie banners, modals, etc.
+    interactions:
+      - type: "click"
+        selector: ".cookie-accept-button"
+        wait_after_ms: 1000
+      - type: "js"
+        code: "document.querySelector('.modal-close')?.click()"
+        wait_after_ms: 500
+
+  # URL-based pagination
+  pagination:
+    type: "url"               # url | js | none
+    start_page: 1
+    max_pages: null           # null = scrape all pages until no results
+    page_template: "?page={page}"  # Appended to base URL for page > 1
+
+  # Extraction configuration (flat structure)
+  extraction:
+    type: "css"               # css | llm
+    base_selector: ".listing-card"
+    fields:
+      - name: "title"
+        selector: "h2.title"
+        type: "text"
+
+      - name: "price_text"
+        selector: ".price"
+        type: "text"
+
+      - name: "property_url"
+        selector: "a.detail-link"
+        type: "attribute"
+        attribute: "href"
+
+      - name: "image_urls"
+        selector: "img.gallery"
+        type: "attribute"
+        attribute: "src"
+        multiple: true        # Returns an array of values
+
+  # Output configuration
+  output:
+    required_fields:
+      - "property_url"
+      - "rent_price_brl"
+    unique_key:
+      - "full_address"
+      - "rent_price_brl"
+    files:
+      csv: "example_results.csv"
+      json_file: "example_extracted.json"
+    transform: []             # Custom transform rules (advanced)
+
+# Details scraping (optional) - scrape individual property pages
+details_scraping:
+  enabled: false
+  setup:
+    wait_for:
+      css: ".property-details"
+    page_timeout: 60000
+    cache_mode: "bypass"
+    concurrency:
+      max_requests: 2         # Max concurrent requests
+      delay_ms: 2000          # Delay between requests
+      timeout_per_page: 30000
+    interactions: []
+
+  extraction:
+    type: "llm"
+    provider: "openrouter/openai/gpt-4o-mini"
+    api_token_env: "LLM_API_KEY"
+    input_format: "markdown"  # markdown | html | fit_markdown
+    # images field specifies which images to pass to the LLM for vision analysis
+    images:
+      - selector: ".main-image"
+        attribute: "src"
+      - selector: ".gallery img"
+        attribute: "data-src"
+    instruction: |
+      Extract the following property information as JSON:
+      {
+        "full_address": "complete address",
+        "condo_fee_text": "monthly fee as shown",
+        "full_description": "property description"
+      }
+      Return only the JSON object.
+
+---
+# =============================================================================
+# EXAMPLE 2: JS-based Pagination (like apolar - "load more" buttons)
+# =============================================================================
+# Note: Create a separate file for each site configuration
+
+# name: "example_js_pagination"
+# enabled: false
+# url: "https://www.example.com/infinite-scroll-page"
+#
+# browser:
+#   browser_type: "chromium"
+#   headless: true
+#   verbose: true
+#
+# listing_scraping:
+#   setup:
+#     wait_for:
+#       css: ".property-card"
+#     page_timeout: 120000
+#     cache_mode: "bypass"
+#     interactions: []
+#
+#   # JS-based pagination - runs JavaScript to load all content
+#   pagination:
+#     type: "js"
+#     js_code: |
+#       (async () => {
+#         // Click all "load more" buttons
+#         while (document.querySelector('.load-more')) {
+#           document.querySelector('.load-more').click();
+#           await new Promise(r => setTimeout(r, 2000));
+#         }
+#         window.loadingComplete = true;
+#       })();
+#     wait_for:
+#       js: "() => window.loadingComplete === true"  # REQUIRED for type: js
+#
+#   extraction:
+#     type: "css"
+#     base_selector: ".property-card"
+#     fields:
+#       - name: "title"
+#         selector: ".title"
+#         type: "text"
+#       - name: "price_text"
+#         selector: ".price"
+#         type: "text"
+#
+#   output:
+#     required_fields:
+#       - "title"
+#     unique_key:
+#       - "title"
+#     files:
+#       csv: "results.csv"
+#       json: "results.json"
+#     transform: []
 
 # =============================================================================
-# SITES
-# Define your scraping targets here
+# CONFIGURATION REFERENCE
 # =============================================================================
-sites:
-  # ---------------------------------------------------------------------------
-  # Example 1: CSS-based extraction with custom JavaScript interaction
-  # ---------------------------------------------------------------------------
-  - name: "apolar_apartments"
-    enabled: true
-    url: "https://www.apolar.com.br/alugar/apartamento/2-quartos?mensal&country=Brasil&garage=1&price_max=R%24%203.100,00&area_min=50,00%20m%C2%B2&include_condominium_price=true"
-
-    browser:
-      browser_type: "chromium"
-      headless: false           # Set to true for production
-      verbose: true
-
-    extraction:
-      type: "css"
-      css:
-        base_selector: ".property-component"
-        fields:
-          - name: "property_type"
-            selector: ".property-type"
-            type: "text"
-
-          - name: "street"
-            selector: ".property-street"
-            type: "text"
-
-          - name: "address_others"
-            selector: ".property-address-others"
-            type: "text"
-
-          - name: "garages_text"
-            selector: ".feature.car"
-            type: "text"
-
-          - name: "bedrooms_text"
-            selector: ".feature.bed"
-            type: "text"
-
-          - name: "area_text"
-            selector: ".feature.ruler"
-            type: "text"
-
-          - name: "bathrooms_text"
-            selector: ".feature.bw"
-            type: "text"
-
-          - name: "rent_price_text"
-            selector: ".property-current-price"
-            type: "text"
-
-          - name: "condo_fee_text"
-            selector: ".property-codominum-price"
-            type: "text"
-
-          - name: "property_url"
-            selector: "a.info-area-wrapper"
-            type: "attribute"
-            attribute: "href"
-
-          - name: "image_urls"
-            selector: ".slick-slide:not(.slick-cloned) img"
-            type: "attribute"
-            attribute: "src"
-            multiple: true        # Returns an array of values
-
-    interaction:
-      css_selector: "[class^='property-component']"
-
-      # wait_for: JavaScript condition that must return true before extraction
-      wait_for: |
-        js:() => {
-          return window.allButtonsClicked === true;
-        }
-
-      # js_code: JavaScript to execute on page load (e.g., infinite scroll, click buttons)
-      js_code: |
-        (async () => {
-          console.log("Starting sequential load-more button clicking...");
-
-          const waitForPropertyContainer = () => {
-            return new Promise(resolve => {
-              const check = setInterval(() => {
-                if (document.querySelector('.property-component')) {
-                  clearInterval(check);
-                  resolve();
-                }
-              }, 200);
-            });
-          };
-
-          await waitForPropertyContainer();
-          console.log('.property-container found. Starting sequential clicks.');
-
-          let clickCount = 0;
-          while (true) {
-            const btn = document.querySelector('.load-more');
-            if (!btn) {
-              console.log(`No more .load-more buttons found after ${clickCount} clicks.`);
-              break;
-            }
-
-            console.log(`Clicking load-more button #${clickCount + 1}...`);
-            btn.click();
-            clickCount++;
-
-            await new Promise(resolve => setTimeout(resolve, 2000));
-          }
-
-          await new Promise(resolve => setTimeout(resolve, 3000));
-
-          const propertyCount = document.querySelectorAll('[class^="property-component"]').length;
-          console.log(`Total properties found in DOM: ${propertyCount}`);
-
-          window.propertyCount = propertyCount;
-          window.allButtonsClicked = true;
-          console.log('All load-more buttons clicked. Ready for extraction.');
-        })();
-
-    timing:
-      page_timeout: 120000
-      delay_before_return_html: 3000
-      wait_until: "networkidle"   # load | domcontentloaded | networkidle
-
-    cache:
-      mode: "bypass"   # enabled | disabled | bypass | read_only | write_only
-
-    data:
-      required_keys:
-        - "full_address"
-        - "rent_price_brl"
-      unique_key_fields:
-        - "full_address"
-        - "rent_price_brl"
-        - "area_sqft"
-      output_file: "apolar_results.csv"
-      json_output_file: "apolar_extracted.json"
-
-    # Transform is optional - when disabled, default transformation is used
-    transform:
-      enabled: false
-
-  # ---------------------------------------------------------------------------
-  # Example 2: Simple CSS extraction without custom JS
-  # ---------------------------------------------------------------------------
-  - name: "example_simple"
-    enabled: false              # Set to true to enable
-    url: "https://example.com/listings"
-
-    extraction:
-      type: "css"
-      css:
-        base_selector: ".listing-card"
-        fields:
-          - name: "title"
-            selector: "h2.title"
-            type: "text"
-
-          - name: "price"
-            selector: ".price"
-            type: "text"
-
-          - name: "link"
-            selector: "a.detail-link"
-            type: "attribute"
-            attribute: "href"
-
-    data:
-      required_keys:
-        - "title"
-        - "price"
-      output_file: "example_results.csv"
-      json_output_file: "example_extracted.json"
-
-  # ---------------------------------------------------------------------------
-  # Example 3: LLM-based extraction
-  # ---------------------------------------------------------------------------
-  - name: "example_llm"
-    enabled: false              # Set to true to enable
-    url: "https://example.com/products"
-
-    extraction:
-      type: "llm"
-      llm:
-        provider: "openai/gpt-4o-mini"
-        api_token_env: "OPENAI_API_KEY"   # Environment variable name
-        instruction: |
-          Extract all product information from the page. For each product, extract:
-          - name: The product name
-          - price: The price as a number
-          - description: A brief description
-          - in_stock: Whether the item is in stock (true/false)
-        input_format: "markdown"   # markdown | html | fit_markdown
-
-    timing:
-      page_timeout: 30000
-
-    data:
-      required_keys:
-        - "name"
-        - "price"
-      output_file: "llm_results.csv"
-      json_output_file: "llm_extracted.json"
-
-  # ---------------------------------------------------------------------------
-  # Example 4: With custom data transformations
-  # ---------------------------------------------------------------------------
-  - name: "example_transform"
-    enabled: false
-    url: "https://example.com/real-estate"
-
-    extraction:
-      type: "css"
-      css:
-        base_selector: ".property"
-        fields:
-          - name: "street"
-            selector: ".street"
-            type: "text"
-          - name: "city"
-            selector: ".city"
-            type: "text"
-          - name: "price_text"
-            selector: ".price"
-            type: "text"
-          - name: "area_text"
-            selector: ".area"
-            type: "text"
-          - name: "images"
-            selector: "img.gallery"
-            type: "attribute"
-            attribute: "src"
-            multiple: true
-
-    data:
-      required_keys:
-        - "full_address"
-        - "price"
-      output_file: "transform_results.csv"
-      json_output_file: "transform_extracted.json"
-
-    transform:
-      enabled: true
-
-      # Convert text fields to numbers
-      numeric_fields:
-        - name: "price"
-          source: "price_text"
-          format: "brazilian_currency"   # brazilian_currency | integer | float
-
-        - name: "area"
-          source: "area_text"
-          format: "float"
-
-      # Create computed fields from templates
-      computed_fields:
-        - name: "full_address"
-          template: "{street}, {city}"
-
-      # Deduplicate values in array fields
-      deduplicate_fields:
-        - "images"
+#
+# PAGINATION TYPES:
+# -----------------
+# type: "url"   - Traditional URL-based pagination
+#                 Loop: extract page 1 → next URL → extract page 2 → ...
+#                 Config: start_page, max_pages, page_template
+#
+# type: "js"    - JavaScript-based pagination (load more buttons, infinite scroll)
+#                 Runs JS once to load all content, then extracts once
+#                 Config: js_code, wait_for (REQUIRED)
+#
+# type: "none"  - Single page, no pagination (default)
+#
+# WAIT_FOR OPTIONS:
+# -----------------
+# wait_for:
+#   css: ".selector"           # Wait for CSS selector to appear
+#   js: "() => expression"     # Wait for JS expression to return true
+#   time: 5000                 # Wait fixed milliseconds
+#
+# EXTRACTION TYPES:
+# -----------------
+# type: "css"   - CSS selector-based extraction
+#                 Requires: base_selector, fields
+#
+# type: "llm"   - LLM-based extraction (uses AI to extract data)
+#                 Requires: provider, instruction
+#                 Optional: images (for vision analysis)
+#
+# INTERACTIONS:
+# -------------
+# Pre-extraction actions to prepare the page:
+#   - type: "click"
+#     selector: ".button"
+#     wait_after_ms: 1000
+#
+#   - type: "js"
+#     code: "custom javascript code"
+#     wait_after_ms: 500

@@ -1,19 +1,18 @@
 import os
-from typing import Union
 
 from crawl4ai import JsonCssExtractionStrategy, LLMConfig, LLMExtractionStrategy
 
-from config.site_config import DetailsExtractionConfig, ExtractionConfig
+from config.site_config import ExtractionConfig
 
 
 def create_extraction_strategy(
-    extraction_config: Union[ExtractionConfig, DetailsExtractionConfig],
-) -> Union[JsonCssExtractionStrategy, LLMExtractionStrategy]:
+    extraction_config: ExtractionConfig,
+) -> JsonCssExtractionStrategy | LLMExtractionStrategy:
     """
     Create an extraction strategy from configuration.
 
     Args:
-        extraction_config: The extraction configuration from YAML.
+        extraction_config: The extraction configuration from YAML (flat structure).
 
     Returns:
         Either JsonCssExtractionStrategy or LLMExtractionStrategy.
@@ -33,19 +32,20 @@ def _create_css_strategy(
     extraction_config: ExtractionConfig,
 ) -> JsonCssExtractionStrategy:
     """Create a CSS-based extraction strategy."""
-    if extraction_config.css is None:
-        raise ValueError("CSS extraction config required when type is 'css'")
+    if extraction_config.base_selector is None:
+        raise ValueError("base_selector is required for CSS extraction")
 
-    css_config = extraction_config.css
+    if not extraction_config.fields:
+        raise ValueError("fields are required for CSS extraction")
 
     # Build the schema
     schema = {
         "name": "extracted_data",
-        "baseSelector": css_config.base_selector,
+        "baseSelector": extraction_config.base_selector,
         "fields": [],
     }
 
-    for field in css_config.fields:
+    for field in extraction_config.fields:
         field_def = {
             "name": field.name,
             "selector": field.selector,
@@ -67,21 +67,22 @@ def _create_llm_strategy(
     extraction_config: ExtractionConfig,
 ) -> LLMExtractionStrategy:
     """Create an LLM-based extraction strategy."""
-    if extraction_config.llm is None:
-        raise ValueError("LLM extraction config required when type is 'llm'")
+    if extraction_config.provider is None:
+        raise ValueError("provider is required for LLM extraction")
 
-    yaml_llm_config = extraction_config.llm
+    if extraction_config.instruction is None:
+        raise ValueError("instruction is required for LLM extraction")
 
     # Get API token from environment variable
-    api_token = os.environ.get(yaml_llm_config.api_token_env)
+    api_token = os.environ.get(extraction_config.api_token_env)
     if not api_token:
         raise ValueError(
-            f"API token not found in environment variable: {yaml_llm_config.api_token_env}"
+            f"API token not found in environment variable: {extraction_config.api_token_env}"
         )
 
     # Use new LLMConfig API
     llm_config = LLMConfig(
-        provider=yaml_llm_config.provider,
+        provider=extraction_config.provider,
         api_token=api_token,
     )
 
@@ -89,24 +90,51 @@ def _create_llm_strategy(
     schema = {
         "type": "object",
         "properties": {
-            "full_address": {"type": "string", "description": "Complete address with street, number, neighborhood, city, state"},
-            "condo_fee_text": {"type": "string", "description": "Monthly condo/condominium fee (Condomínio) as shown, e.g. 'R$ 455,00'"},
-            "iptu_text": {"type": "string", "description": "IPTU property tax as shown, e.g. 'R$ 69,00'"},
-            "fire_insurance_text": {"type": "string", "description": "Fire insurance (Seguro incêndio) as shown, e.g. 'R$ 40,00'"},
-            "total_monthly_cost_text": {"type": "string", "description": "Total monthly cost as shown"},
-            "full_description": {"type": "string", "description": "Full property description text"},
-            "amenities": {"type": "array", "items": {"type": "string"}, "description": "List of amenities and features"},
+            "full_address": {
+                "type": "string",
+                "description": "Complete address with street, number, neighborhood, city, state",
+            },
+            "condo_fee_text": {
+                "type": "string",
+                "description": "Monthly condo/condominium fee (Condomínio) as shown, e.g. 'R$ 455,00'",
+            },
+            "iptu_text": {
+                "type": "string",
+                "description": "IPTU property tax as shown, e.g. 'R$ 69,00'",
+            },
+            "fire_insurance_text": {
+                "type": "string",
+                "description": "Fire insurance (Seguro incêndio) as shown, e.g. 'R$ 40,00'",
+            },
+            "total_monthly_cost_text": {
+                "type": "string",
+                "description": "Total monthly cost as shown",
+            },
+            "full_description": {
+                "type": "string",
+                "description": "Full property description text",
+            },
+            "amenities": {
+                "type": "array",
+                "items": {"type": "string"},
+                "description": "List of amenities and features",
+            },
             "total_area_text": {"type": "string", "description": "Total area in m²"},
-            "private_area_text": {"type": "string", "description": "Private area in m²"},
+            "private_area_text": {
+                "type": "string",
+                "description": "Private area in m²",
+            },
         },
         "required": ["full_address"],
     }
 
+    input_format = extraction_config.input_format or "markdown"
+
     return LLMExtractionStrategy(
         llm_config=llm_config,
-        instruction=yaml_llm_config.instruction,
+        instruction=extraction_config.instruction,
         schema=schema,
         extraction_type="schema",
-        input_format=yaml_llm_config.input_format,
+        input_format=input_format,
         verbose=True,
     )

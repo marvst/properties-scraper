@@ -2,4 +2,5 @@ Crawl4AI
 python-dotenv
 pydantic
 pyyaml
+requests
 rich

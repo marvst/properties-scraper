@@ -1,5 +1,6 @@
 import argparse
 import asyncio
+import json
 import sys
 from datetime import datetime
 from pathlib import Path
@@ -14,8 +15,7 @@ load_dotenv()
 EXTRACTIONS_DIR = Path("extractions")
 
 from config import get_site_config, list_sites
-from database import DatabaseSync
-# from utils.data_utils import save_results_to_csv
+from database import get_syncer
 from utils.details_scraper import PropertyDetailsScraper
 from utils.extraction_factory import create_extraction_strategy
 from utils.scraper_utils import fetch_and_process_page, get_browser_config
@@ -104,19 +104,21 @@ async def crawl(site_name: str, config_path: str):
         # Initialize configurations
         status.update("[bold blue]Initializing browser configuration...")
         browser_config = get_browser_config(site_config)
-        extraction_strategy = create_extraction_strategy(site_config.extraction)
+
+        # Get extraction config from listing_scraping
+        listing_config = site_config.listing_scraping
+        extraction_strategy = create_extraction_strategy(listing_config.extraction)
         session_id = f"crawl_{site_config.name}"
 
-        # Get CSS selector and required keys from config
+        # Get CSS selector from extraction config
         css_selector = ""
-        if site_config.interaction and site_config.interaction.css_selector:
-            css_selector = site_config.interaction.css_selector
-        elif site_config.extraction.css:
-            css_selector = site_config.extraction.css.base_selector
+        if listing_config.extraction.type == "css" and listing_config.extraction.base_selector:
+            css_selector = listing_config.extraction.base_selector
 
+        # Get required keys from output config
         required_keys = []
-        if site_config.data:
-            required_keys = site_config.data.required_keys
+        if listing_config.output:
+            required_keys = listing_config.output.required_fields
 
         # Initialize state variables
         all_results = []
@@ -125,9 +127,9 @@ async def crawl(site_name: str, config_path: str):
     # Start the web crawler context - stop spinner during crawl to avoid event loop interference
     console.print("[bold blue]Starting browser...")
     async with AsyncWebCrawler(config=browser_config) as crawler:
-        # Check if pagination is enabled
-        pagination = site_config.pagination
-        if pagination and pagination.enabled:
+        # Check pagination type
+        pagination = listing_config.pagination
+        if pagination and pagination.type == "url":
             # URL-based pagination
             current_page = pagination.start_page
             max_pages = pagination.max_pages
@@ -166,8 +168,28 @@ async def crawl(site_name: str, config_path: str):
                     break
 
                 current_page += 1
+
+        elif pagination and pagination.type == "js":
+            # JS-based pagination (load all content with JS, then extract once)
+            console.print("[bold blue]Fetching page with JS-based loading...")
+            results = await fetch_and_process_page(
+                crawler,
+                site_config.url,
+                css_selector,
+                extraction_strategy,
+                session_id,
+                required_keys,
+                seen_names,
+                site_config,
+            )
+
+            if not results:
+                console.print("[yellow]No results extracted from the page.[/yellow]")
+
+            all_results.extend(results)
+
         else:
-            # Single page scraping (original behavior)
+            # Single page scraping (type="none" or no pagination)
             console.print("[bold blue]Fetching page and extracting data...")
             results = await fetch_and_process_page(
                 crawler,
@@ -183,7 +205,6 @@ async def crawl(site_name: str, config_path: str):
             if not results:
                 console.print("[yellow]No results extracted from the page.[/yellow]")
 
-            # Add the results to the total list
             all_results.extend(results)
 
         # Scrape property details if enabled
@@ -199,19 +220,16 @@ async def crawl(site_name: str, config_path: str):
                 console.print("[yellow]Continuing with listing data only.[/yellow]")
 
     with console.status("[bold green]Saving results...") as status:
+        # Save final results to JSON
+        if all_results:
+            status.update("[bold green]Saving JSON...")
+            EXTRACTIONS_DIR.mkdir(exist_ok=True)
+            timestamp = datetime.now().strftime("%Y%m%d_%H%M%S")
+            json_output_path = EXTRACTIONS_DIR / f"{site_config.name}_{timestamp}.json"
 
-        # # Save the collected results to a CSV file
-        # if all_results:
-        #     status.update("[bold green]Saving results...")
-        #     # Ensure extractions directory exists
-        #     EXTRACTIONS_DIR.mkdir(exist_ok=True)
-
-        #     # Generate timestamped filename
-        #     timestamp = datetime.now().strftime("%Y%m%d_%H%M%S")
-        #     output_file = EXTRACTIONS_DIR / f"{site_config.name}_{timestamp}.csv"
-
-        #     save_results_to_csv(all_results, str(output_file))
-        #     console.print(f"[green]Saved {len(all_results)} results to '{output_file}'.[/green]")
+            with open(json_output_path, "w", encoding="utf-8") as f:
+                json.dump(all_results, f, indent=2, ensure_ascii=False)
+            console.print(f"[green]Saved {len(all_results)} properties to '{json_output_path}'[/green]")
 
         # Sync to vou-pra-curitiba database
         if all_results:
@@ -220,7 +238,7 @@ async def crawl(site_name: str, config_path: str):
             parsed_url = urlparse(site_config.url)
             source_name = site_config.source or site_config.name.split("_")[0]
             base_url = site_config.base_url or f"{parsed_url.scheme}://{parsed_url.netloc}"
-            syncer = DatabaseSync(source=source_name, base_url=base_url)
+            syncer = get_syncer(source=source_name, base_url=base_url)
             try:
                 stats = syncer.sync_properties(all_results)
                 console.print(

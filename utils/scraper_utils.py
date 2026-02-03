@@ -1,7 +1,5 @@
 import json
 import re
-from datetime import datetime
-from pathlib import Path
 from typing import List, Optional, Set, Union
 
 from bs4 import BeautifulSoup
@@ -15,7 +13,11 @@ from crawl4ai import (
 )
 
 from config.site_config import SiteConfig
-from utils.data_utils import get_property_unique_key, is_complete_property, is_duplicate_property
+from utils.data_utils import (
+    get_property_unique_key,
+    is_complete_property,
+    is_duplicate_property,
+)
 
 
 def get_browser_config(site_config: Optional[SiteConfig] = None) -> BrowserConfig:
@@ -59,8 +61,15 @@ def get_cache_mode(site_config: SiteConfig) -> CacheMode:
     Returns:
         CacheMode: The cache mode to use.
     """
-    if site_config.cache is None:
-        return CacheMode.BYPASS
+    # Check listing_scraping.setup.cache_mode
+    if (
+        site_config.listing_scraping
+        and site_config.listing_scraping.setup
+        and site_config.listing_scraping.setup.cache_mode
+    ):
+        cache_mode_str = site_config.listing_scraping.setup.cache_mode
+    else:
+        cache_mode_str = "bypass"
 
     mode_map = {
         "enabled": CacheMode.ENABLED,
@@ -69,7 +78,7 @@ def get_cache_mode(site_config: SiteConfig) -> CacheMode:
         "read_only": CacheMode.READ_ONLY,
         "write_only": CacheMode.WRITE_ONLY,
     }
-    return mode_map.get(site_config.cache.mode, CacheMode.BYPASS)
+    return mode_map.get(cache_mode_str, CacheMode.BYPASS)
 
 
 def parse_number(text: str) -> float:
@@ -114,7 +123,9 @@ def parse_integer(text: str) -> int:
     return int(match.group()) if match else 0
 
 
-def transform_property(raw_property: dict, site_config: Optional[SiteConfig] = None) -> dict:
+def transform_property(
+    raw_property: dict, site_config: Optional[SiteConfig] = None
+) -> dict:
     """
     Transforms raw CSS-extracted data into the final property format.
 
@@ -125,8 +136,13 @@ def transform_property(raw_property: dict, site_config: Optional[SiteConfig] = N
     Returns:
         dict: Transformed property with correct types and field names.
     """
-    # Apply custom transforms if configured
-    if site_config and site_config.transform and site_config.transform.enabled:
+    # Apply custom transforms if configured in output.transform
+    if (
+        site_config
+        and site_config.listing_scraping
+        and site_config.listing_scraping.output
+        and site_config.listing_scraping.output.transform
+    ):
         return _apply_custom_transforms(raw_property, site_config)
 
     # Default transformation logic (for backward compatibility)
@@ -181,41 +197,25 @@ def _default_transform(raw_property: dict) -> dict:
         "full_address": full_address,
         "property_url": raw_property.get("property_url", ""),
         "image_urls": image_urls,
-        "description": raw_property.get("property_type", ""),  # Use property type as basic description
+        "description": raw_property.get(
+            "property_type", ""
+        ),  # Use property type as basic description
     }
 
 
 def _apply_custom_transforms(raw_property: dict, site_config: SiteConfig) -> dict:
     """Apply custom transformations from site configuration."""
     result = dict(raw_property)
-    transform = site_config.transform
+    transform_list = site_config.listing_scraping.output.transform
 
-    # Apply numeric field transformations
-    for num_field in transform.numeric_fields:
-        source_value = raw_property.get(num_field.source, "")
-        if num_field.format == "brazilian_currency":
-            result[num_field.name] = parse_number(source_value)
-        elif num_field.format == "integer":
-            result[num_field.name] = parse_integer(source_value)
-        else:  # float
-            result[num_field.name] = parse_number(source_value)
-
-    # Apply computed fields
-    for computed in transform.computed_fields:
-        try:
-            result[computed.name] = computed.template.format(**result)
-        except KeyError:
-            result[computed.name] = ""
-
-    # Deduplicate specified fields
-    for field_name in transform.deduplicate_fields:
-        if field_name in result and isinstance(result[field_name], list):
-            result[field_name] = list(dict.fromkeys(result[field_name]))
-
-    return result
+    # The transform list can contain transformation rules
+    # For now, fall back to default transform since the structure is simplified
+    return _default_transform(raw_property)
 
 
-def _extract_images_from_html(html: str, base_selector: str, image_selector: str) -> List[List[str]]:
+def _extract_images_from_html(
+    html: str, base_selector: str, image_selector: str
+) -> List[List[str]]:
     """Extract images from HTML using BeautifulSoup.
 
     Workaround for crawl4ai's JsonCssExtractionStrategy not handling multiple: true correctly.
@@ -228,7 +228,7 @@ def _extract_images_from_html(html: str, base_selector: str, image_selector: str
     Returns:
         List of image URL lists, one per property card.
     """
-    soup = BeautifulSoup(html, 'html.parser')
+    soup = BeautifulSoup(html, "html.parser")
     property_cards = soup.select(base_selector)
 
     all_images = []
@@ -236,8 +236,8 @@ def _extract_images_from_html(html: str, base_selector: str, image_selector: str
         images = card.select(image_selector)
         urls = []
         for img in images:
-            src = img.get('src') or img.get('data-lazy') or img.get('data-src')
-            if src and not src.startswith('data:'):
+            src = img.get("src") or img.get("data-lazy") or img.get("data-src")
+            if src and not src.startswith("data:"):
                 urls.append(src)
         # Deduplicate while preserving order
         urls = list(dict.fromkeys(urls))
@@ -282,20 +282,68 @@ async def fetch_and_process_page(
         "session_id": session_id,
     }
 
-    # Add interaction settings from config
-    if site_config and site_config.interaction:
-        interaction = site_config.interaction
-        if interaction.wait_for:
-            config_kwargs["wait_for"] = interaction.wait_for
-        if interaction.js_code:
-            config_kwargs["js_code"] = interaction.js_code
+    # Get listing scraping config
+    listing_config = site_config.listing_scraping if site_config else None
+    setup_config = listing_config.setup if listing_config else None
+    pagination_config = listing_config.pagination if listing_config else None
 
-    # Add timing settings
-    if site_config and site_config.timing:
-        timing = site_config.timing
-        config_kwargs["page_timeout"] = timing.page_timeout
-        if timing.delay_before_return_html > 0:
-            config_kwargs["delay_before_return_html"] = timing.delay_before_return_html
+    # Add wait_for from setup config
+    if setup_config and setup_config.wait_for:
+        wait_for = setup_config.wait_for
+        if wait_for.css:
+            config_kwargs["wait_for"] = f"css:{wait_for.css}"
+        elif wait_for.js:
+            config_kwargs["wait_for"] = f"js:{wait_for.js}"
+        elif wait_for.time:
+            config_kwargs["wait_for"] = f"time:{wait_for.time}"
+
+    # Add page_timeout from setup config
+    if setup_config:
+        config_kwargs["page_timeout"] = setup_config.page_timeout
+
+    # For JS-based pagination, use js_code and wait_for from pagination config
+    if pagination_config and pagination_config.type == "js":
+        if pagination_config.js_code:
+            config_kwargs["js_code"] = pagination_config.js_code
+        # Override wait_for with pagination's wait_for (required for JS pagination)
+        if pagination_config.wait_for:
+            wait_for = pagination_config.wait_for
+            if wait_for.css:
+                config_kwargs["wait_for"] = f"css:{wait_for.css}"
+            elif wait_for.js:
+                config_kwargs["wait_for"] = f"js:{wait_for.js}"
+            elif wait_for.time:
+                config_kwargs["wait_for"] = f"time:{wait_for.time}"
+
+    # Run pre-extraction interactions from setup config
+    if setup_config and setup_config.interactions:
+        js_code_parts = []
+        for interaction in setup_config.interactions:
+            if interaction.type == "click" and interaction.selector:
+                js_code_parts.append(
+                    f"document.querySelector('{interaction.selector}')?.click();"
+                )
+                if interaction.wait_after_ms > 0:
+                    js_code_parts.append(
+                        f"await new Promise(r => setTimeout(r, {interaction.wait_after_ms}));"
+                    )
+            elif interaction.type == "js" and interaction.code:
+                js_code_parts.append(interaction.code)
+                if interaction.wait_after_ms > 0:
+                    js_code_parts.append(
+                        f"await new Promise(r => setTimeout(r, {interaction.wait_after_ms}));"
+                    )
+
+        if js_code_parts:
+            # If there's already js_code from pagination, prepend interactions
+            existing_js = config_kwargs.get("js_code", "")
+            interaction_js = (
+                "(async () => {\n" + "\n".join(js_code_parts) + "\n})();"
+            )
+            if existing_js:
+                config_kwargs["js_code"] = interaction_js + "\n" + existing_js
+            else:
+                config_kwargs["js_code"] = interaction_js
 
     # Fetch page content
     result = await crawler.arun(
@@ -314,29 +362,20 @@ async def fetch_and_process_page(
     extracted_data = json.loads(result.extracted_content)
 
     # Workaround for crawl4ai's multiple:true bug - extract images separately using BeautifulSoup
-    if site_config and site_config.extraction.css:
-        base_selector = site_config.extraction.css.base_selector
+    if listing_config and listing_config.extraction.type == "css":
+        base_selector = listing_config.extraction.base_selector
         # Find the image field configuration
-        for field in site_config.extraction.css.fields:
+        for field in listing_config.extraction.fields:
             if field.name == "image_urls" and field.multiple:
-                image_lists = _extract_images_from_html(result.html, base_selector, field.selector)
+                image_lists = _extract_images_from_html(
+                    result.html, base_selector, field.selector
+                )
                 # Merge images back into extracted data
                 for i, images in enumerate(image_lists):
                     if i < len(extracted_data):
                         extracted_data[i]["image_urls"] = images
                 break
 
-    # Save raw extracted JSON to extractions folder with timestamp
-    extractions_dir = Path("extractions")
-    extractions_dir.mkdir(exist_ok=True)
-
-    timestamp = datetime.now().strftime("%Y%m%d_%H%M%S")
-    site_name = site_config.name if site_config else "unknown"
-    json_output_path = extractions_dir / f"{site_name}_{timestamp}.json"
-
-    with open(json_output_path, "w", encoding="utf-8") as f:
-        json.dump(extracted_data, f, indent=2, ensure_ascii=False)
-    print(f"Saved raw extracted JSON to '{json_output_path}'")
 
     if not extracted_data:
         print("\n=== Filtering Summary ===")

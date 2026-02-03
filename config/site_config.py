@@ -1,6 +1,6 @@
 from typing import Literal, Optional
 
-from pydantic import BaseModel, Field
+from pydantic import BaseModel, Field, model_validator
 
 
 class BrowserConfig(BaseModel):
@@ -13,6 +13,37 @@ class BrowserConfig(BaseModel):
     viewport_height: Optional[int] = None
 
 
+# --- New Flat Structure Models ---
+
+
+class WaitForConfig(BaseModel):
+    """Wait condition - at least one must be set."""
+
+    css: Optional[str] = None
+    js: Optional[str] = None
+    time: Optional[int] = None
+
+
+class InteractionAction(BaseModel):
+    """Single pre-extraction interaction."""
+
+    type: Literal["click", "js"]
+    selector: Optional[str] = None  # For click type
+    code: Optional[str] = None  # For js type
+    wait_after_ms: int = 0
+
+
+class SetupConfig(BaseModel):
+    """Setup configuration for listing scraping."""
+
+    wait_for: Optional[WaitForConfig] = None
+    page_timeout: int = 60000
+    cache_mode: Literal["enabled", "disabled", "bypass", "read_only", "write_only"] = (
+        "bypass"
+    )
+    interactions: list[InteractionAction] = Field(default_factory=list)
+
+
 class CssField(BaseModel):
     """CSS field extraction definition."""
 
@@ -23,133 +54,119 @@ class CssField(BaseModel):
     multiple: bool = False
 
 
-class CssExtractionConfig(BaseModel):
-    """CSS-based extraction configuration."""
+class ImageSelector(BaseModel):
+    """Image selector with attribute for LLM extraction.
 
-    base_selector: str
-    fields: list[CssField]
+    Supports two modes:
+    1. CSS selector mode: selector + attribute (default)
+    2. Regex mode: pattern (extracts URLs matching regex from raw HTML)
+    """
 
-
-class LlmExtractionConfig(BaseModel):
-    """LLM-based extraction configuration."""
-
-    provider: str = "openai/gpt-4o-mini"
-    api_token_env: str = "LLM_API_KEY"
-    instruction: str
-    input_format: Literal["markdown", "html", "fit_markdown"] = "markdown"
+    selector: Optional[str] = None
+    attribute: str = "src"
+    pattern: Optional[str] = None  # Regex pattern for extracting URLs from HTML
 
 
 class ExtractionConfig(BaseModel):
-    """Extraction strategy configuration."""
+    """Extraction configuration (flat structure)."""
 
     type: Literal["css", "llm"] = "css"
-    css: Optional[CssExtractionConfig] = None
-    llm: Optional[LlmExtractionConfig] = None
-
-
-class InteractionConfig(BaseModel):
-    """Page interaction configuration."""
-
-    css_selector: Optional[str] = None
-    wait_for: Optional[str] = None
-    js_code: Optional[str] = None
-
-
-class TimingConfig(BaseModel):
-    """Timing configuration."""
-
-    page_timeout: int = 60000
-    delay_before_return_html: int = 0
-    wait_until: Literal["load", "domcontentloaded", "networkidle"] = "networkidle"
-
-
-class CacheConfig(BaseModel):
-    """Cache configuration."""
-
-    mode: Literal["enabled", "disabled", "bypass", "read_only", "write_only"] = "bypass"
+    # CSS extraction fields
+    base_selector: Optional[str] = None
+    fields: list[CssField] = Field(default_factory=list)
+    # LLM extraction fields
+    provider: Optional[str] = None
+    api_token_env: str = "LLM_API_KEY"
+    input_format: Optional[Literal["markdown", "html", "fit_markdown"]] = None
+    instruction: Optional[str] = None
+    images: list[ImageSelector] = Field(
+        default_factory=list
+    )  # LLM only: images for vision model
 
 
 class PaginationConfig(BaseModel):
-    """URL-based pagination configuration."""
+    """Pagination configuration - supports URL, JS, or none."""
 
-    enabled: bool = False
+    type: Literal["url", "js", "none"] = "none"
+    # URL-based pagination fields
     start_page: int = 1
-    max_pages: Optional[int] = None  # None means scrape until no results
-    page_template: str = "-pagina-{page}"  # Appended to base URL for page > 1
+    max_pages: Optional[int] = None
+    page_template: str = "?page={page}"
+    # JS-based pagination fields
+    js_code: Optional[str] = None
+    wait_for: Optional[WaitForConfig] = None  # REQUIRED for type="js"
+
+    @model_validator(mode="after")
+    def validate_js_pagination(self):
+        if self.type == "js" and self.wait_for is None:
+            raise ValueError("wait_for is required for JS-based pagination")
+        return self
 
 
-class NumericFieldTransform(BaseModel):
-    """Numeric field transformation configuration."""
+class OutputFilesConfig(BaseModel):
+    """Output file paths."""
 
-    name: str
-    source: str
-    format: Literal["brazilian_currency", "integer", "float"] = "float"
-
-
-class ComputedField(BaseModel):
-    """Computed field configuration."""
-
-    name: str
-    template: str
+    csv: Optional[str] = None
+    json_file: Optional[str] = None
 
 
-class TransformConfig(BaseModel):
-    """Data transformation configuration."""
+class OutputConfig(BaseModel):
+    """Output configuration."""
 
-    enabled: bool = False
-    numeric_fields: list[NumericFieldTransform] = Field(default_factory=list)
-    computed_fields: list[ComputedField] = Field(default_factory=list)
-    deduplicate_fields: list[str] = Field(default_factory=list)
+    required_fields: list[str] = Field(default_factory=list)
+    unique_key: list[str] = Field(default_factory=list)
+    files: Optional[OutputFilesConfig] = None
+    transform: list = Field(default_factory=list)
 
 
-class DetailsExtractionConfig(BaseModel):
-    """Extraction strategy configuration for property details."""
+class ListingScrapingConfig(BaseModel):
+    """Complete listing scraping configuration."""
 
-    type: Literal["css", "llm"] = "css"
-    css: Optional[CssExtractionConfig] = None
-    llm: Optional[LlmExtractionConfig] = None
+    setup: Optional[SetupConfig] = None
+    pagination: Optional[PaginationConfig] = None
+    extraction: ExtractionConfig
+    output: Optional[OutputConfig] = None
+
+
+class ConcurrencyConfig(BaseModel):
+    """Concurrency settings for details scraping."""
+
+    max_requests: int = 2
+    delay_ms: int = 1000
+    timeout_per_page: int = 30000
+
+
+class DetailsSetupConfig(BaseModel):
+    """Setup configuration for details scraping."""
+
+    wait_for: Optional[WaitForConfig] = None
+    page_timeout: int = 60000
+    cache_mode: Literal["enabled", "disabled", "bypass", "read_only", "write_only"] = (
+        "bypass"
+    )
+    concurrency: Optional[ConcurrencyConfig] = None
+    interactions: list[InteractionAction] = Field(default_factory=list)
 
 
 class DetailsScrapingConfig(BaseModel):
-    """Configuration for property details page scraping."""
+    """Complete details scraping configuration."""
 
     enabled: bool = False
-    max_concurrent_requests: int = 3
-    request_delay_ms: int = 1000
-    timeout_per_property: int = 30000
-    wait_for: Optional[str] = None
-    js_code: Optional[str] = None  # JS to run before extraction
-    image_selectors: list[str] = Field(default_factory=list)  # CSS selectors to try for images
-    image_attributes: list[str] = Field(default_factory=lambda: ["src", "data-lazy", "data-src"])
-    extraction: Optional[DetailsExtractionConfig] = None
-
-
-class DataConfig(BaseModel):
-    """Data output configuration."""
-
-    required_keys: list[str] = Field(default_factory=list)
-    unique_key_fields: list[str] = Field(default_factory=list)
-    output_file: str = "results.csv"
-    json_output_file: str = "extracted.json"
+    setup: Optional[DetailsSetupConfig] = None
+    extraction: Optional[ExtractionConfig] = None
 
 
 class SiteConfig(BaseModel):
-    """Complete site configuration."""
+    """Complete site configuration (new structure)."""
 
     name: str
     enabled: bool = True
     url: str
     source: Optional[str] = None  # e.g., "apolar" - defaults to name.split("_")[0]
-    base_url: Optional[str] = None  # e.g., "https://www.apolar.com.br" - defaults to url's origin
+    base_url: Optional[str] = None  # e.g., "https://www.apolar.com.br"
 
     browser: Optional[BrowserConfig] = None
-    extraction: ExtractionConfig
-    interaction: Optional[InteractionConfig] = None
-    timing: Optional[TimingConfig] = None
-    cache: Optional[CacheConfig] = None
-    pagination: Optional[PaginationConfig] = None
-    data: Optional[DataConfig] = None
-    transform: Optional[TransformConfig] = None
+    listing_scraping: ListingScrapingConfig
     details_scraping: Optional[DetailsScrapingConfig] = None
 
 
@@ -157,7 +174,6 @@ class DefaultsConfig(BaseModel):
     """Default configuration values."""
 
     browser: Optional[BrowserConfig] = None
-    timing: Optional[TimingConfig] = None
 
 
 class SitesConfig(BaseModel):

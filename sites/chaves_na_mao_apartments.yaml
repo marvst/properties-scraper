@@ -1,0 +1,133 @@
+name: "chaves_na_mao_apartments"
+enabled: true
+url: "https://www.chavesnamao.com.br/apartamentos-para-alugar/pr-curitiba/1-quarto/?filtro=ban:1,gar:1,pmax:3100,cnd:true"
+base_url: "https://www.chavesnamao.com.br"
+
+browser:
+  browser_type: "chromium"
+  headless: true
+  verbose: true
+
+listing_scraping:
+  setup:
+    wait_for:
+      css: "article"
+    page_timeout: 60000
+    cache_mode: "bypass"
+    interactions: []
+
+  pagination:
+    type: "url"
+    start_page: 1
+    max_pages: null
+    page_template: "&pg={page}"
+
+  extraction:
+    type: "llm"
+    provider: "openrouter/openai/gpt-4o-mini"
+    input_format: "markdown"
+    instruction: |
+      Extract all apartment listings from this page as a JSON array.
+      Each listing should have:
+      {
+        "property_type": "type of property (e.g., Apartamento)",
+        "street": "street name",
+        "neighborhood": "neighborhood name",
+        "city": "city name",
+        "rent_price_text": "monthly rent as shown (e.g., 'R$ 2.500,00')",
+        "condo_fee_text": "condo fee if shown (e.g., 'R$ 400,00')",
+        "bedrooms_text": "number of bedrooms as shown",
+        "bathrooms_text": "number of bathrooms as shown",
+        "garages_text": "number of garage spaces as shown",
+        "area_text": "area in m² as shown (e.g., '65 m²')",
+        "property_url": "relative or absolute URL to the property details page",
+        "image_urls": ["array of image URLs if available"]
+      }
+      Return only a JSON array of objects, no explanation.
+
+  output:
+    required_fields:
+      - "property_url"
+      - "rent_price_brl"
+    unique_key:
+      - "full_address"
+      - "rent_price_brl"
+      - "area_sqft"
+    files:
+      csv: "chaves_na_mao_results.csv"
+      json_file: "chaves_na_mao_extracted.json"
+    transform: []
+
+details_scraping:
+  enabled: true
+  setup:
+    interactions:
+      - type: "js"
+        code: |
+          await new Promise((resolve) => {
+            const checkAndClick = () => {
+              const btn = document.querySelector('#tablink-media');
+              if (btn) {
+                btn.click();
+                resolve();
+              } else {
+                setTimeout(checkAndClick, 200);
+              }
+            };
+            checkAndClick();
+          });
+    wait_for:
+      css: ".galleryContainer img"
+    page_timeout: 60000
+    cache_mode: "bypass"
+    concurrency:
+      max_requests: 2
+      delay_ms: 2000
+      timeout_per_page: 30000
+    
+
+  extraction:
+    type: "llm"
+    provider: "openrouter/openai/gpt-4o-mini"
+    input_format: "markdown"
+    images:
+      # CSS selector for gallery images (after clicking media tab)
+      - selector: ".galleryContainer img"
+        attribute: "src"
+      - selector: ".galleryContainer img"
+        attribute: "data-src"
+      # Fallback: regex to extract from JSON data if gallery doesn't render
+      - pattern: "https://www\\.chavesnamao\\.com\\.br/imn/1200x0800/N/70/imoveis/[^\"'\\s]+"
+    instruction: |
+      Extract property information from this Brazilian real estate listing page.
+
+      IMPORTANT: Look for room counts in BOTH the structured data (icons/labels) AND the description text.
+      Brazilian terms to recognize:
+      - Bedrooms: "quartos", "dormitórios", "dorm"
+      - Bathrooms: "banheiros", "banheiro", "BWC", "WC", "lavabo" (BWC = banheiro)
+      - Garages: "vagas", "vaga", "garagem", "estacionamento"
+
+      Count each BWC/banheiro/lavabo as 1 bathroom. If description says "BWC social" that's 1 bathroom.
+      If description says "1 vaga de garagem" that's 1 garage space.
+
+      Return JSON:
+      {
+        "full_address": "complete address with street, number, neighborhood, city, state",
+        "neighborhood": "neighborhood name",
+        "street": "street name",
+        "number": "property number if available",
+        "city": "city name",
+        "state": "state name",
+        "bedrooms_text": "number of bedrooms (extract the number, e.g., '2')",
+        "bathrooms_text": "number of bathrooms including BWC/lavabo (extract the number, e.g., '1')",
+        "garages_text": "number of garage/parking spaces (extract the number, e.g., '1')",
+        "area_text": "area in m² as shown (e.g., '65 m²')",
+        "condo_fee_text": "monthly condo/condominium fee as shown (e.g., 'R$ 455,00')",
+        "iptu_text": "IPTU property tax as shown (e.g., 'R$ 69,00')",
+        "total_monthly_cost_text": "total monthly cost if shown",
+        "full_description": "full property description text",
+        "amenities": ["list", "of", "amenities", "and", "features"],
+        "total_area_text": "total area in m²",
+        "private_area_text": "private area in m² if different from total"
+      }
+      Return only the JSON object, no explanation.

@@ -1,21 +1,6 @@
-# Procrawl Site Configuration
-# This file contains the configuration for galvao_apartments site
-
-# Defaults that apply to this site
-defaults:
-  browser:
-    browser_type: chromium
-    headless: true
-    verbose: false
-
-  timing:
-    page_timeout: 60000
-    delay_before_return_html: 0
-
-# Site configuration
 name: "galvao_apartments"
 enabled: true
-url: "https://www.galvao.com.br/imoveis/apartamento-locacao-curitiba-2-ou-mais-quartos-1-ou-mais-vagas-ate-3100-de-50m2"
+url: "https://www.galvao.com.br/imoveis/apartamento-locacao-curitiba-ate-3100"
 base_url: "https://www.galvao.com.br"
 
 browser:
@@ -23,15 +8,22 @@ browser:
   headless: true
   verbose: true
 
-pagination:
-  enabled: true
-  start_page: 1
-  max_pages: null  # Scrape all pages until no results
-  page_template: "-pagina-{page}"
+listing_scraping:
+  setup:
+    wait_for:
+      css: ".list__card"
+    page_timeout: 60000
+    cache_mode: "bypass"
+    interactions: []
 
-extraction:
-  type: "css"
-  css:
+  pagination:
+    type: "url"
+    start_page: 1
+    max_pages: null
+    page_template: "-pagina-{page}"
+
+  extraction:
+    type: "css"
     base_selector: ".list__card"
     fields:
       - name: "property_type"
@@ -74,63 +66,57 @@ extraction:
         attribute: "src"
         multiple: true
 
-interaction:
-  css_selector: ".list__card"
-  wait_for: "css:.list__card"
-
-timing:
-  page_timeout: 60000
-  # delay_before_return_html: 2000
-
-cache:
-  mode: "bypass"
-
-data:
-  required_keys:
-    - "property_url"
-    - "rent_price_brl"
-  unique_key_fields:
-    - "full_address"
-    - "rent_price_brl"
-    - "area_sqft"
-  output_file: "galvao_results.csv"
-  json_output_file: "galvao_extracted.json"
-
-transform:
-  enabled: false
+  output:
+    required_fields:
+      - "property_url"
+      - "rent_price_brl"
+    unique_key:
+      - "full_address"
+      - "rent_price_brl"
+      - "area_sqft"
+    files:
+      csv: "galvao_results.csv"
+      json_file: "galvao_extracted.json"
+    transform: []
 
 details_scraping:
   enabled: true
-  max_concurrent_requests: 2
-  request_delay_ms: 2000
-  timeout_per_property: 30000
-  wait_for: "css:.card__photo-img"
-  image_selectors:
-    - ".card__photo-img"
-    - ".jetslider__item img"
-  image_attributes:
-    - "src"
+  setup:
+    wait_for:
+      css: ".card__photo-img"
+    page_timeout: 60000
+    cache_mode: "bypass"
+    concurrency:
+      max_requests: 2
+      delay_ms: 2000
+      timeout_per_page: 30000
+    interactions: []
+
   extraction:
     type: "llm"
-    llm:
-      provider: "openrouter/openai/gpt-4o-mini"
-      input_format: "markdown"
-      instruction: |
-        Extract the following property information as JSON:
-        {
-          "full_address": "complete address with street, number, neighborhood, city, state",
-          "neighborhood": "neighborhood name",
-          "street": "street",
-          "number": "property number",
-          "city": "city name",
-          "state": "state name",
-          "condo_fee_text": "monthly condo/condominium fee (Condomínio) as shown, e.g. 'R$ 455,00'",
-          "iptu_text": "IPTU property tax as shown, e.g. 'R$ 69,00'",
-          "fire_insurance_text": "fire insurance (Seguro incêndio) as shown, e.g. 'R$ 40,00'",
-          "total_monthly_cost_text": "total monthly cost as shown",
-          "full_description": "full property description text",
-          "amenities": ["list", "of", "amenities", "and", "features"],
-          "total_area_text": "total area in m²",
-          "private_area_text": "private area in m²"
-        }
-        Return only the JSON object, no explanation.
+    provider: "openrouter/openai/gpt-4o-mini"
+    input_format: "markdown"
+    images:
+      - selector: ".card__photo-img"
+        attribute: "src"
+      - selector: ".jetslider__item img"
+        attribute: "src"
+    instruction: |
+      Extract the following property information as JSON:
+      {
+        "full_address": "complete address with street, number, neighborhood, city, state",
+        "neighborhood": "neighborhood name",
+        "street": "street",
+        "number": "property number",
+        "city": "city name",
+        "state": "state name",
+        "condo_fee_text": "monthly condo/condominium fee (Condomínio) as shown, e.g. 'R$ 455,00'",
+        "iptu_text": "IPTU property tax as shown, e.g. 'R$ 69,00'",
+        "fire_insurance_text": "fire insurance (Seguro incêndio) as shown, e.g. 'R$ 40,00'",
+        "total_monthly_cost_text": "total monthly cost as shown",
+        "full_description": "full property description text",
+        "amenities": ["list", "of", "amenities", "and", "features"],
+        "total_area_text": "total area in m²",
+        "private_area_text": "private area in m²"
+      }
+      Return only the JSON object, no explanation.

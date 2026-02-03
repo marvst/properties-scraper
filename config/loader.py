@@ -1,18 +1,19 @@
 from pathlib import Path
-from typing import Optional, List
+from typing import List, Optional
 
 import yaml
 
 from config.site_config import (
     BrowserConfig,
-    CacheConfig,
-    DataConfig,
+    ConcurrencyConfig,
     DefaultsConfig,
     DetailsScrapingConfig,
-    InteractionConfig,
+    DetailsSetupConfig,
+    ListingScrapingConfig,
+    OutputConfig,
+    PaginationConfig,
+    SetupConfig,
     SiteConfig,
-    TimingConfig,
-    TransformConfig,
 )
 
 DEFAULT_SITES_DIR = "sites"
@@ -64,9 +65,7 @@ def load_sites_config(sites_dir: Optional[str] = None) -> List[SiteConfig]:
     return site_configs
 
 
-def get_site_config(
-    site_name: str, sites_dir: Optional[str] = None
-) -> SiteConfig:
+def get_site_config(site_name: str, sites_dir: Optional[str] = None) -> SiteConfig:
     """
     Get configuration for a specific site by name.
 
@@ -130,68 +129,40 @@ def _merge_defaults(site: SiteConfig, defaults: Optional[DefaultsConfig]) -> Sit
     Returns:
         SiteConfig: Site configuration with defaults applied.
     """
-    if defaults is None:
-        # Apply hardcoded defaults if no defaults section
-        return _apply_hardcoded_defaults(site)
-
-    # Create a copy of the site config data
     site_data = site.model_dump()
 
     # Merge browser defaults
-    if site.browser is None and defaults.browser is not None:
-        site_data["browser"] = defaults.browser.model_dump()
-    elif site.browser is None:
-        site_data["browser"] = BrowserConfig().model_dump()
-
-    # Merge timing defaults
-    if site.timing is None and defaults.timing is not None:
-        site_data["timing"] = defaults.timing.model_dump()
-    elif site.timing is None:
-        site_data["timing"] = TimingConfig().model_dump()
-
-    # Apply other hardcoded defaults
-    if site.cache is None:
-        site_data["cache"] = CacheConfig().model_dump()
-
-    if site.data is None:
-        site_data["data"] = DataConfig().model_dump()
-
-    if site.transform is None:
-        site_data["transform"] = TransformConfig().model_dump()
-
-    if site.interaction is None:
-        site_data["interaction"] = InteractionConfig().model_dump()
-
-    if site.details_scraping is None:
-        site_data["details_scraping"] = DetailsScrapingConfig().model_dump()
-
-    return SiteConfig(**site_data)
-
-
-def _apply_hardcoded_defaults(site: SiteConfig) -> SiteConfig:
-    """Apply hardcoded defaults when no defaults section exists."""
-    site_data = site.model_dump()
-
     if site.browser is None:
-        site_data["browser"] = BrowserConfig().model_dump()
+        if defaults and defaults.browser is not None:
+            site_data["browser"] = defaults.browser.model_dump()
+        else:
+            site_data["browser"] = BrowserConfig().model_dump()
 
-    if site.timing is None:
-        site_data["timing"] = TimingConfig().model_dump()
+    # Apply defaults for listing_scraping sub-sections
+    if site.listing_scraping:
+        listing_data = site_data["listing_scraping"]
 
-    if site.cache is None:
-        site_data["cache"] = CacheConfig().model_dump()
+        # Ensure setup exists with defaults
+        if site.listing_scraping.setup is None:
+            listing_data["setup"] = SetupConfig().model_dump()
 
-    if site.data is None:
-        site_data["data"] = DataConfig().model_dump()
+        # Ensure pagination exists with defaults (type="none" by default)
+        if site.listing_scraping.pagination is None:
+            listing_data["pagination"] = PaginationConfig().model_dump()
 
-    if site.transform is None:
-        site_data["transform"] = TransformConfig().model_dump()
+        # Ensure output exists with defaults
+        if site.listing_scraping.output is None:
+            listing_data["output"] = OutputConfig().model_dump()
 
-    if site.interaction is None:
-        site_data["interaction"] = InteractionConfig().model_dump()
-
+    # Apply defaults for details_scraping sub-sections
     if site.details_scraping is None:
         site_data["details_scraping"] = DetailsScrapingConfig().model_dump()
+    elif site.details_scraping.setup is None:
+        details_data = site_data["details_scraping"]
+        details_data["setup"] = DetailsSetupConfig().model_dump()
+        # Ensure concurrency defaults
+        if details_data["setup"].get("concurrency") is None:
+            details_data["setup"]["concurrency"] = ConcurrencyConfig().model_dump()
 
     return SiteConfig(**site_data)
 
