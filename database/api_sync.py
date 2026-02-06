@@ -45,6 +45,9 @@ class ApiSync:
             rails_prop = from_procrawl(prop_data, self.source, self.base_url)
             api_properties.append(self._property_to_dict(rails_prop))
 
+        # Collect all external IDs for the finalize step
+        all_external_ids = [p["external_id"] for p in api_properties]
+
         # Split into batches
         batches = [
             api_properties[i : i + batch_size]
@@ -64,6 +67,10 @@ class ApiSync:
                 "properties": batch,
                 "finalize": is_last_batch,
             }
+
+            # Include all external IDs with the final batch for accurate removal detection
+            if is_last_batch:
+                payload["all_external_ids"] = all_external_ids
 
             response = self._send_with_retry(payload)
             response.raise_for_status()
