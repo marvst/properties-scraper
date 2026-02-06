@@ -29,42 +29,56 @@ class ApiSync:
         if not self.api_key:
             raise ValueError("VPC_API_KEY environment variable is not set")
 
-    def sync_properties(self, properties: list[dict]) -> dict:
+    def sync_properties(self, properties: list[dict], batch_size: int = 50) -> dict:
         """Sync a list of properties to the database via API.
 
         Args:
             properties: List of property dicts from procrawl extraction
+            batch_size: Number of properties per API request (default: 50)
 
         Returns:
             Dict with sync statistics: {added, updated, found, removed}
         """
-        # Convert properties to API format
+        # Convert all properties to API format first
         api_properties = []
         for prop_data in properties:
             rails_prop = from_procrawl(prop_data, self.source, self.base_url)
             api_properties.append(self._property_to_dict(rails_prop))
 
-        # Send to API
-        payload = {
-            "source": self.source,
-            "base_url": self.base_url,
-            "properties": api_properties,
-        }
+        # Split into batches
+        batches = [
+            api_properties[i : i + batch_size]
+            for i in range(0, len(api_properties), batch_size)
+        ]
 
-        response = self._send_with_retry(payload)
-        response.raise_for_status()
+        # Aggregate stats across all batches
+        total_stats = {"added": 0, "updated": 0, "found": 0, "removed": 0}
 
-        result = response.json()
-        if result.get("status") == "error":
-            raise RuntimeError(f"API sync failed: {result.get('error')}")
+        for i, batch in enumerate(batches, 1):
+            is_last_batch = i == len(batches)
+            print(f"Syncing batch {i}/{len(batches)} ({len(batch)} properties)...")
 
-        stats = result.get("statistics", {})
-        return {
-            "added": stats.get("added", 0),
-            "updated": stats.get("updated", 0),
-            "found": stats.get("found", 0),
-            "removed": stats.get("removed", 0),
-        }
+            payload = {
+                "source": self.source,
+                "base_url": self.base_url,
+                "properties": batch,
+                "finalize": is_last_batch,
+            }
+
+            response = self._send_with_retry(payload)
+            response.raise_for_status()
+
+            result = response.json()
+            if result.get("status") == "error":
+                raise RuntimeError(f"API sync failed on batch {i}: {result.get('error')}")
+
+            stats = result.get("statistics", {})
+            total_stats["added"] += stats.get("added", 0)
+            total_stats["updated"] += stats.get("updated", 0)
+            total_stats["found"] += stats.get("found", 0)
+            total_stats["removed"] += stats.get("removed", 0)
+
+        return total_stats
 
     def _property_to_dict(self, prop: Any) -> dict:
         """Convert a RailsProperty to a dict for API transmission."""
