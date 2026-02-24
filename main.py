@@ -30,9 +30,10 @@ def parse_args():
         formatter_class=argparse.RawDescriptionHelpFormatter,
         epilog="""
  Examples:
-   python main.py --list                    List available sites
-   python main.py apolar_apartments         Crawl a specific site
-   python main.py my_site --config custom_sites_dir  Use custom sites directory
+   python main.py --list                         List available sites
+   python main.py --config sites/guaratingueta   Crawl all sites in a folder
+   python main.py apolar_apartments              Crawl a specific site
+   python main.py kenlo --config sites/guaratingueta  Crawl one site from a folder
          """,
     )
 
@@ -52,6 +53,12 @@ def parse_args():
         "-l",
         action="store_true",
         help="List available sites and exit",
+    )
+    parser.add_argument(
+        "--headless",
+        action=argparse.BooleanOptionalAction,
+        default=None,
+        help="Override headless mode (--headless or --no-headless). Overrides YAML config.",
     )
 
     return parser.parse_args()
@@ -79,13 +86,15 @@ def print_sites_list(config_path: str):
     print("-" * 70)
 
 
-async def crawl(site_name: str, config_path: str):
+async def crawl(site_name: str, config_path: str, headless: bool | None = None, quiet: bool = False):
     """
     Main function to crawl data from a configured site.
 
     Args:
         site_name: The name of the site to crawl.
         config_path: Path to the directory containing site YAML files.
+        headless: Override headless mode. None means use YAML config value.
+        quiet: Suppress low-level operational logs.
     """
     with console.status("[bold blue]Loading configuration...") as status:
         # Load site configuration
@@ -98,8 +107,12 @@ async def crawl(site_name: str, config_path: str):
             console.print(f"[red]Error: {e}[/red]")
             sys.exit(1)
 
-        console.print(f"\n[bold]Crawling site:[/bold] {site_config.name}")
-        console.print(f"[bold]URL:[/bold] {site_config.url}")
+        if headless is not None and site_config.browser:
+            site_config.browser.headless = headless
+
+        if not quiet:
+            console.print(f"\n[bold]Crawling site:[/bold] {site_config.name}")
+            console.print(f"[bold]URL:[/bold] {site_config.url}")
 
         # Initialize configurations
         status.update("[bold blue]Initializing browser configuration...")
@@ -125,7 +138,8 @@ async def crawl(site_name: str, config_path: str):
         seen_names = set()
 
     # Start the web crawler context - stop spinner during crawl to avoid event loop interference
-    console.print("[bold blue]Starting browser...")
+    if not quiet:
+        console.print("[bold blue]Starting browser...")
     async with AsyncWebCrawler(config=browser_config) as crawler:
         # Check pagination type
         pagination = listing_config.pagination
@@ -142,7 +156,8 @@ async def crawl(site_name: str, config_path: str):
                 else:
                     page_url = base_url + pagination.page_template.format(page=current_page)
 
-                console.print(f"[bold blue]Fetching page {current_page}: {page_url}[/bold blue]")
+                if not quiet:
+                    console.print(f"[bold blue]Fetching page {current_page}: {page_url}[/bold blue]")
 
                 results = await fetch_and_process_page(
                     crawler,
@@ -153,25 +168,30 @@ async def crawl(site_name: str, config_path: str):
                     required_keys,
                     seen_names,
                     site_config,
+                    quiet=quiet,
                 )
 
                 if not results:
-                    console.print(f"[yellow]No results on page {current_page}. Stopping pagination.[/yellow]")
+                    if not quiet:
+                        console.print(f"[yellow]No results on page {current_page}. Stopping pagination.[/yellow]")
                     break
 
-                console.print(f"[green]Found {len(results)} results on page {current_page}[/green]")
+                if not quiet:
+                    console.print(f"[green]Found {len(results)} results on page {current_page}[/green]")
                 all_results.extend(results)
 
                 # Check if we've reached max_pages
                 if max_pages and current_page >= max_pages:
-                    console.print(f"[yellow]Reached max_pages ({max_pages}). Stopping pagination.[/yellow]")
+                    if not quiet:
+                        console.print(f"[yellow]Reached max_pages ({max_pages}). Stopping pagination.[/yellow]")
                     break
 
                 current_page += 1
 
         elif pagination and pagination.type == "js":
             # JS-based pagination (load all content with JS, then extract once)
-            console.print("[bold blue]Fetching page with JS-based loading...")
+            if not quiet:
+                console.print("[bold blue]Fetching page with JS-based loading...")
             results = await fetch_and_process_page(
                 crawler,
                 site_config.url,
@@ -181,16 +201,19 @@ async def crawl(site_name: str, config_path: str):
                 required_keys,
                 seen_names,
                 site_config,
+                quiet=quiet,
             )
 
             if not results:
-                console.print("[yellow]No results extracted from the page.[/yellow]")
+                if not quiet:
+                    console.print("[yellow]No results extracted from the page.[/yellow]")
 
             all_results.extend(results)
 
         else:
             # Single page scraping (type="none" or no pagination)
-            console.print("[bold blue]Fetching page and extracting data...")
+            if not quiet:
+                console.print("[bold blue]Fetching page and extracting data...")
             results = await fetch_and_process_page(
                 crawler,
                 site_config.url,
@@ -200,16 +223,19 @@ async def crawl(site_name: str, config_path: str):
                 required_keys,
                 seen_names,
                 site_config,
+                quiet=quiet,
             )
 
             if not results:
-                console.print("[yellow]No results extracted from the page.[/yellow]")
+                if not quiet:
+                    console.print("[yellow]No results extracted from the page.[/yellow]")
 
             all_results.extend(results)
 
         # Scrape property details if enabled
         if site_config.details_scraping and site_config.details_scraping.enabled and all_results:
-            console.print("[bold blue]Scraping property details...[/bold blue]")
+            if not quiet:
+                console.print("[bold blue]Scraping property details...[/bold blue]")
             try:
                 details_scraper = PropertyDetailsScraper(site_config)
                 all_results = await details_scraper.scrape_property_details(
@@ -252,6 +278,33 @@ async def crawl(site_name: str, config_path: str):
             console.print("[yellow]No results were found during the crawl.[/yellow]")
 
 
+async def crawl_all(config_path: str, headless: bool | None = None):
+    """Crawl all enabled sites in a config directory sequentially."""
+    sites = list_sites(config_path)
+    enabled_sites = [s for s in sites if s["enabled"]]
+
+    if not enabled_sites:
+        console.print(f"[yellow]No enabled sites found in '{config_path}'.[/yellow]")
+        return
+
+    console.print(f"[bold]Found {len(enabled_sites)} enabled site(s) in '{config_path}'[/bold]")
+
+    failed = []
+    for i, site in enumerate(enabled_sites, 1):
+        site_name = site["name"]
+        site_stem = site.get("stem", site_name)
+        console.print(f"\n[bold blue]━━━ [{i}/{len(enabled_sites)}] {site_name} ━━━[/bold blue]")
+        try:
+            await crawl(site_stem, config_path, headless=headless, quiet=True)
+        except Exception as e:
+            console.print(f"[red]Failed to crawl '{site_name}': {e}[/red]")
+            failed.append(site_name)
+
+    console.print(f"\n[bold]Done.[/bold] {len(enabled_sites) - len(failed)}/{len(enabled_sites)} site(s) succeeded.")
+    if failed:
+        console.print(f"[red]Failed: {', '.join(failed)}[/red]")
+
+
 async def main():
     """Entry point of the script."""
     args = parse_args()
@@ -260,12 +313,10 @@ async def main():
         print_sites_list(args.config)
         return
 
-    if not args.site:
-        print("Error: Please specify a site name or use --list to see available sites.")
-        print("Usage: python main.py <site_name> [--config <config_file>]")
-        sys.exit(1)
-
-    await crawl(args.site, args.config)
+    if args.site:
+        await crawl(args.site, args.config, headless=args.headless)
+    else:
+        await crawl_all(args.config, headless=args.headless)
 
 
 if __name__ == "__main__":

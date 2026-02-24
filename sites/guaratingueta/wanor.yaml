@@ -1,0 +1,153 @@
+name: "wanorimoveis"
+enabled: true
+url: "https://www.wanorimoveis.com.br/imoveis/para-alugar/casa+apartamento/guaratingueta"
+base_url: "https://www.wanorimoveis.com.br"
+
+browser:
+  browser_type: "chromium"
+  headless: false
+  verbose: true
+
+listing_scraping:
+  setup:
+    wait_for:
+      css: ".card-with-buttons"
+    page_timeout: 60000
+    cache_mode: "bypass"
+    interactions: []
+
+  pagination:
+    type: "js"
+    js_code: |
+      (async () => {
+        console.log("Starting sequential load-more button clicking...");
+
+        const waitForPropertyContainer = () => {
+          return new Promise(resolve => {
+            const check = setInterval(() => {
+              if (document.querySelector('.card-with-buttons')) {
+                clearInterval(check);
+                resolve();
+              }
+            }, 200);
+          });
+        };
+
+        await waitForPropertyContainer();
+        console.log('.property-container found. Starting sequential clicks.');
+
+        let clickCount = 0;
+
+        while (true) {
+          const btn = document.querySelector('.btn-next');
+
+          if (!btn) {
+            console.log(`No more load-more buttons found after ${clickCount} clicks.`);
+            break;
+          }
+
+          // ✅ Stop if button is disabled
+          if (btn.disabled || btn.matches(':disabled')) {
+            console.log(`Button became disabled after ${clickCount} clicks. Stopping.`);
+            break;
+          }
+
+          console.log(`Clicking load-more button #${clickCount + 1}...`);
+          btn.click();
+          clickCount++;
+
+          await new Promise(resolve => setTimeout(resolve, 2000));
+        }
+
+        await new Promise(resolve => setTimeout(resolve, 3000));
+
+        const propertyCount = document.querySelectorAll('[class^="card-with-buttons"]').length;
+        console.log(`Total properties found in DOM: ${propertyCount}`);
+
+        window.propertyCount = propertyCount;
+        window.allButtonsClicked = true;
+
+        console.log('All load-more buttons clicked or button disabled. Ready for extraction.');
+      })();
+    wait_for:
+      js: "() => window.allButtonsClicked === true"
+
+  extraction:
+    type: "llm"
+    provider: "openrouter/openai/gpt-4o-mini"
+    input_format: "markdown"
+    instruction: |
+      Extract all property listings from this Brazilian real estate page as a JSON array.
+      Each listing should have:
+      {
+        "property_type": "type of property (e.g., Apartamento, Casa, Kitnet)",
+        "street": "street name",
+        "neighborhood": "neighborhood name",
+        "city": "city name",
+        "rent_price_text": "monthly rent as shown (e.g., 'R$ 1.200,00')",
+        "condo_fee_text": "condo fee if shown (e.g., 'R$ 300,00')",
+        "bedrooms_text": "number of bedrooms as shown",
+        "bathrooms_text": "number of bathrooms as shown",
+        "garages_text": "number of garage spaces as shown",
+        "area_text": "area in m² as shown (e.g., '60 m²')",
+        "property_url": "relative or absolute URL to the property details page",
+        "image_urls": ["array of image URLs if available"]
+      }
+      Return only a JSON array of objects, no explanation.
+
+  output:
+    required_fields:
+      - "property_url"
+      - "rent_price_brl"
+    unique_key:
+      - "full_address"
+      - "rent_price_brl"
+      - "area_sqft"
+    files:
+      csv: "wanorimoveis_results.csv"
+      json_file: "wanorimoveis_extracted.json"
+    transform: []
+
+details_scraping:
+  enabled: true
+  setup:
+    wait_for:
+      time: 3000
+    page_timeout: 60000
+    cache_mode: "bypass"
+    concurrency:
+      max_requests: 2
+      delay_ms: 2000
+      timeout_per_page: 30000
+    interactions: []
+
+  extraction:
+    type: "llm"
+    provider: "openrouter/openai/gpt-4o-mini"
+    input_format: "markdown"
+    images:
+      - selector: "img"
+        attribute: "src"
+    instruction: |
+      Extract the following property information from this Brazilian real estate listing page as JSON:
+      {
+        "full_address": "complete address with street, number, neighborhood, city, state",
+        "neighborhood": "neighborhood name",
+        "street": "street name",
+        "number": "property number if available",
+        "additional": "apartment number, block, floor, or any unit identifier (e.g., 'Apt 302', 'Bloco B')",
+        "city": "city name",
+        "state": "state abbreviation (e.g., 'SP', 'MG')",
+        "bedrooms_text": "number of bedrooms (e.g., '2')",
+        "bathrooms_text": "number of bathrooms (e.g., '1')",
+        "garages_text": "number of garage/parking spaces (e.g., '1')",
+        "area_text": "area in m² as shown (e.g., '65 m²')",
+        "condo_fee_text": "monthly condo fee as shown (e.g., 'R$ 300,00')",
+        "iptu_text": "IPTU property tax as shown (e.g., 'R$ 50,00')",
+        "total_monthly_cost_text": "total monthly cost if shown",
+        "full_description": "full property description text",
+        "amenities": ["list", "of", "amenities", "and", "features"],
+        "total_area_text": "total area in m²",
+        "private_area_text": "private area in m² if different from total"
+      }
+      Return only the JSON object, no explanation.

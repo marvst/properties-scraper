@@ -196,6 +196,7 @@ def list_sites(sites_dir: Optional[str] = None) -> list[dict]:
             # Extract basic info without full validation
             site_info = {
                 "name": raw_config.get("name", yaml_file.stem),
+                "stem": yaml_file.stem,
                 "enabled": raw_config.get("enabled", True),
                 "url": raw_config.get("url", ""),
             }

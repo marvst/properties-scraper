@@ -1,6 +1,6 @@
 name: "apolar_apartments"
 enabled: true
-url: "https://www.apolar.com.br/alugar/apartamento/curitiba?mensal&country=Brasil&price_max=R%24%203.100,00&include_condominium_price=true"
+url: "https://www.apolar.com.br/alugar/apartamento/curitiba?mensal&country=Brasil&garage=1&price_max=R%24%203.100,00&area_min=50,00%20m%C2%B2&include_condominium_price=true"
 
 browser:
   browser_type: "chromium"

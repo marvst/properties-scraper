@@ -255,6 +255,7 @@ async def fetch_and_process_page(
     required_keys: List[str],
     seen_names: Set[str],
     site_config: Optional[SiteConfig] = None,
+    quiet: bool = False,
 ) -> List[dict]:
     """
     Fetches and processes property data from the initial page load.
@@ -272,7 +273,8 @@ async def fetch_and_process_page(
     Returns:
         List[dict]: A list of processed properties from the page.
     """
-    print(f"Loading page: {url[:80]}...")
+    if not quiet:
+        print(f"Loading page: {url[:80]}...")
 
     # Build crawler run config
     config_kwargs = {
@@ -378,9 +380,10 @@ async def fetch_and_process_page(
 
 
     if not extracted_data:
-        print("\n=== Filtering Summary ===")
-        print("Total extracted: 0")
-        print("No properties found on the page.")
+        if not quiet:
+            print("\n=== Filtering Summary ===")
+            print("Total extracted: 0")
+            print("No properties found on the page.")
         return []
 
     total_extracted = len(extracted_data)
@@ -401,9 +404,10 @@ async def fetch_and_process_page(
         complete_properties.append(property_data)
 
     # Print filtering summary
-    print("\n=== Filtering Summary ===")
-    print(f"Total extracted: {total_extracted}")
-    print(f"After filtering: {len(complete_properties)}")
-    print(f"Removed:         {total_extracted - len(complete_properties)}")
+    if not quiet:
+        print("\n=== Filtering Summary ===")
+        print(f"Total extracted: {total_extracted}")
+        print(f"After filtering: {len(complete_properties)}")
+        print(f"Removed:         {total_extracted - len(complete_properties)}")
 
     return complete_properties

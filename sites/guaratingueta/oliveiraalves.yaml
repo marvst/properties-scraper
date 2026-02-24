@@ -1,0 +1,103 @@
+name: "oliveiraalves"
+enabled: true
+url: "https://www.imobiliariaoliveiraalves.com/imoveis-locacao.php?tipo%5B%5D=Apartamento&tipo%5B%5D=Casa&tipo%5B%5D=Kitnet&cidade=GUARATINGUETA&codigo_imovel=&area_minima=&area_maxima=&valor_minimo=&valor_maximo=&qtd_quartos=&qtd_suites=&qtd_vagas="
+base_url: "https://www.imobiliariaoliveiraalves.com"
+
+browser:
+  browser_type: "chromium"
+  headless: true
+  verbose: true
+
+listing_scraping:
+  setup:
+    wait_for:
+      css: ".property-item"
+    page_timeout: 60000
+    cache_mode: "bypass"
+    interactions: []
+
+  pagination:
+    type: "url"
+    start_page: 1
+    max_pages: null
+    page_template: "&pagina={page}"
+
+  extraction:
+    type: "llm"
+    provider: "openrouter/openai/gpt-4o-mini"
+    input_format: "markdown"
+    instruction: |
+      Extract all property listings from this Brazilian real estate page as a JSON array.
+      Each listing should have:
+      {
+        "property_type": "type of property (e.g., Apartamento, Casa, Kitnet)",
+        "street": "street name",
+        "neighborhood": "neighborhood name",
+        "city": "city name",
+        "rent_price_text": "monthly rent as shown (e.g., 'R$ 1.200,00')",
+        "condo_fee_text": "condo fee if shown (e.g., 'R$ 300,00')",
+        "bedrooms_text": "number of bedrooms as shown",
+        "bathrooms_text": "number of bathrooms as shown",
+        "garages_text": "number of garage spaces as shown",
+        "area_text": "area in m² as shown (e.g., '60 m²')",
+        "property_url": "relative or absolute URL to the property details page",
+        "image_urls": ["array of image URLs if available"]
+      }
+      Return only a JSON array of objects, no explanation.
+
+  output:
+    required_fields:
+      - "property_url"
+      - "rent_price_brl"
+    unique_key:
+      - "full_address"
+      - "rent_price_brl"
+      - "area_sqft"
+    files:
+      csv: "habit_guaratingueta_results.csv"
+      json_file: "habit_guaratingueta_extracted.json"
+    transform: []
+
+details_scraping:
+  enabled: true
+  setup:
+    wait_for:
+      time: 3000
+    page_timeout: 60000
+    cache_mode: "bypass"
+    concurrency:
+      max_requests: 2
+      delay_ms: 2000
+      timeout_per_page: 30000
+    interactions: []
+
+  extraction:
+    type: "llm"
+    provider: "openrouter/openai/gpt-4o-mini"
+    input_format: "markdown"
+    images:
+      - selector: "img"
+        attribute: "src"
+    instruction: |
+      Extract the following property information from this Brazilian real estate listing page as JSON:
+      {
+        "full_address": "complete address with street, number, neighborhood, city, state",
+        "neighborhood": "neighborhood name",
+        "street": "street name",
+        "number": "property number if available",
+        "additional": "apartment number, block, floor, or any unit identifier (e.g., 'Apt 302', 'Bloco B')",
+        "city": "city name",
+        "state": "state abbreviation (e.g., 'SP', 'MG')",
+        "bedrooms_text": "number of bedrooms (e.g., '2')",
+        "bathrooms_text": "number of bathrooms (e.g., '1')",
+        "garages_text": "number of garage/parking spaces (e.g., '1')",
+        "area_text": "area in m² as shown (e.g., '65 m²')",
+        "condo_fee_text": "monthly condo fee as shown (e.g., 'R$ 300,00')",
+        "iptu_text": "IPTU property tax as shown (e.g., 'R$ 50,00')",
+        "total_monthly_cost_text": "total monthly cost if shown",
+        "full_description": "full property description text",
+        "amenities": ["list", "of", "amenities", "and", "features"],
+        "total_area_text": "total area in m²",
+        "private_area_text": "private area in m² if different from total"
+      }
+      Return only the JSON object, no explanation.

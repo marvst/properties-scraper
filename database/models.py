@@ -23,6 +23,10 @@ class RailsProperty:
     condo_fee: Optional[float] = None
     total_price: Optional[float] = None
     address: Optional[str] = None
+    street: Optional[str] = None
+    street_number: Optional[str] = None
+    additional: Optional[str] = None
+    state: Optional[str] = None
     original_url: Optional[str] = None
     main_image_url: Optional[str] = None
     description: Optional[str] = None
@@ -101,6 +105,10 @@ def from_procrawl(data: dict, source: str, base_url: str) -> RailsProperty:
         condo_fee=_to_float(condo_fee),
         total_price=_to_float(total_price),
         address=data.get("full_address"),
+        street=data.get("street"),
+        street_number=str(data.get("number")) if data.get("number") else None,
+        additional=data.get("additional"),
+        state=data.get("state"),
         original_url=original_url,
         main_image_url=main_image_url,
         description=data.get("description"),

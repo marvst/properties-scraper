@@ -1,6 +1,6 @@
 name: "chaves_na_mao_apartments"
 enabled: true
-url: "https://www.chavesnamao.com.br/apartamentos-para-alugar/pr-curitiba/1-quarto/?filtro=ban:1,gar:1,pmax:3100,cnd:true"
+url: "https://www.chavesnamao.com.br/apartamentos-para-alugar/pr-curitiba/2-quartos/?filtro=ban:1,gar:1,pmax:3100,cnd:true,amin:50"
 base_url: "https://www.chavesnamao.com.br"
 
 browser:
@@ -116,8 +116,9 @@ details_scraping:
         "neighborhood": "neighborhood name",
         "street": "street name",
         "number": "property number if available",
+        "additional": "apartment number, block, floor, or any unit identifier (e.g., 'Apt 302', 'Bloco B', 'Sala 10')",
         "city": "city name",
-        "state": "state name",
+        "state": "state abbreviation (e.g., 'PR', 'SP')",
         "bedrooms_text": "number of bedrooms (extract the number, e.g., '2')",
         "bathrooms_text": "number of bathrooms including BWC/lavabo (extract the number, e.g., '1')",
         "garages_text": "number of garage/parking spaces (extract the number, e.g., '1')",

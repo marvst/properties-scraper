@@ -1,6 +1,6 @@
 name: "galvao_apartments"
 enabled: true
-url: "https://www.galvao.com.br/imoveis/apartamento-locacao-curitiba-ate-3100"
+url: "https://www.galvao.com.br/imoveis/apartamento-locacao-curitiba-2-ou-mais-quartos-1-ou-mais-vagas-ate-3100-de-50m2"
 base_url: "https://www.galvao.com.br"
 
 browser:
@@ -108,8 +108,9 @@ details_scraping:
         "neighborhood": "neighborhood name",
         "street": "street",
         "number": "property number",
+        "additional": "apartment number, block, floor, or any unit identifier (e.g., 'Apt 302', 'Bloco B', 'Sala 10')",
         "city": "city name",
-        "state": "state name",
+        "state": "state abbreviation (e.g., 'PR', 'SP')",
         "condo_fee_text": "monthly condo/condominium fee (Condomínio) as shown, e.g. 'R$ 455,00'",
         "iptu_text": "IPTU property tax as shown, e.g. 'R$ 69,00'",
         "fire_insurance_text": "fire insurance (Seguro incêndio) as shown, e.g. 'R$ 40,00'",
